@@ -1,0 +1,49 @@
+{
+    "TIME": {
+        "long_name": "Time",
+        "standard_name": "time ",
+        "axis": "T",
+        "ancillary_variables": NaN,
+        "sdn_parameter_name": "Elapsed time relative to 1970-01-01T00:00:00Z",
+        "sdn_parameter_urn": "SDN:P01::ELTMEP01",
+        "sdn_uom_name": "Days",
+        "sdn_uom_urn": "SDN:P06::UTAA",
+        "QC_indicator": "unknown"
+    },
+    "DEPH": {
+        "long_name": "Depth",
+        "standard_name": "depth",
+        "units": "m",
+        "axis": "Z",
+        "ancillary_variables": NaN,
+        "sdn_parameter_name": "Depth (spatial coordinate) relative to water surface in the water body",
+        "sdn_parameter_urn": "SDN:P01::ADEPZZ01",
+        "sdn_uom_name": "SDN:P06::ULAA",
+        "sdn_uom_urn": "meters",
+        "QC_indicator": "unknown"
+    },
+    "LATITUDE": {
+        "long_name": "Latitude of each location",
+        "standard_name": "latitude",
+        "units": "degrees_north",
+        "axis": "Y",
+        "ancillary_variables": NaN,
+        "sdn_parameter_name": "Latitude north",
+        "sdn_parameter_urn": "SDN:P01::ALATZZ01",
+        "sdn_uom_name": "Degrees north",
+        "sdn_uom_urn": "SDN:P06::DEGN",
+        "QC_indicator": "unknown"
+    },
+    "LONGITUDE": {
+        "long_name": "Longitude of each location",
+        "standard_name": "longitude",
+        "units": "degrees_east",
+        "axis": "X",
+        "ancillary_variables": NaN,
+        "sdn_parameter_name": "Longitude east",
+        "sdn_parameter_urn": "SDN:P01::ALONZZ01",
+        "sdn_uom_name": "Degrees east",
+        "sdn_uom_urn": "SDN:P06::DEGE",
+        "QC_indicator": "unknown"
+    }
+}
