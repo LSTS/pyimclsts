@@ -81,11 +81,13 @@ if __name__ == '__main__':
         delimiter_polygon = False
 
     ## Find all Data.lsf.gz
+
+    ### Completed, now logs full paths are coming out of it.
     compressed_files_path = gather_log_paths(mission_path)
     compressed_files_path.sort()
 
     ## Decompress them 
-    export_logs(compressed_files_path)
+    decompressed_files_path = export_logs(compressed_files_path)
 
     checkable_files = []
 
@@ -94,30 +96,50 @@ if __name__ == '__main__':
 
         for path in compressed_files_path: 
             
-            if os.path.isdir(path + '/mra'):
-                shutil.rmtree(path + '/mra')
+            path_dir = os.path.dirname(path.rstrip('/'))
 
-            checkable_files.append(path)
+            if os.path.isdir(path_dir + '/mra'):
+                shutil.rmtree(path_dir + '/mra')
+
+            if path.endswith('.gz'):
+                
+                checkable_files.append(path[:-3])
+
+            else:
+
+                checkable_files.append(path)
 
     # else, only go through data files without data xlsx
     else: 
         for path in compressed_files_path:
 
-            if not os.path.isfile(path + '/mra/Data.xlsx') and os.path.isfile(path + '/Data.lsf'):
+            path_dir = os.path.dirname(path.rstrip('/'))
 
-                checkable_files.append(path)
+            if not os.path.isfile(path_dir + '/mra/Data.xlsx'):
+                
+                if path.endswith('.gz'):
+
+                    checkable_files.append(path[:-3])
+                
+                else:
+
+                    checkable_files.append(path)
 
     rejected_files = []
+
+    print("Checkable files: {}".format(checkable_files))
 
     ## Get needed data into xlsv file
     for path in checkable_files:
 
-        if not os.path.isdir(path + '/mra'):
+        path_dir = os.path.dirname(path.rstrip('/'))
 
-            os.makedirs(path + '/mra')
+        if not os.path.isdir(path_dir + '/mra'):
+
+            os.makedirs(path_dir + '/mra')
         
-        logData = logDataGatherer(path + '/mra/Data.xlsx')
-        src_file = path + '/Data.lsf'
+        logData = logDataGatherer(path_dir + '/mra/Data.xlsx')
+        src_file = path 
 
         try:
 
@@ -174,28 +196,27 @@ if __name__ == '__main__':
         print("For whatever reason these files were not used: {}".format(rejected_files))
 
     # Remove rejected files from original file list
-    for path in rejected_files:
-        compressed_files_path.remove(path)
+    for path_dir in rejected_files:
+        decompressed_files_path.remove(path_dir)
 
     # Now we concatenate all of the created excel files into a single one
     concat_data = pd.DataFrame()
 
-    for index, path in enumerate(compressed_files_path):
+    for index, path in enumerate(decompressed_files_path):
         
+        path_dir = os.path.dirname(path.rstrip('/'))
+
         print("Concatenating file: {}".format(path))
 
-        if not os.path.isdir(path + '/mra'):
 
-            os.makedirs(path + '/mra', exist_ok=True)
-
-        logData = path + '/mra/Data.xlsx'
+        logData = path_dir + '/mra/Data.xlsx'
         
         # Read data from excel file
         all_data = pd.read_excel(logData, sheet_name='DATA')
         # Concatenate said file with the previous ones
         concat_data = pd.concat([concat_data, all_data])
 
-        if index == len(compressed_files_path) - 1:
+        if index == len(decompressed_files_path) - 1:
             
             metadata_df = pd.read_excel(logData, sheet_name='METADATA')
             system_name = metadata_df['system'].iloc[0]
@@ -263,10 +284,10 @@ if __name__ == '__main__':
 
         print("\n## Clearing Data.xlsx files used ## \n ")
 
-        for path in compressed_files_path: 
-
-            if os.path.isfile(path + '/mra/Data.xlsx'):
-                os.remove(path + '/mra/Data.xlsx')
+        for path in decompressed_files_path: 
+            path_dir = os.path.dirname(path.rstrip('/'))
+            if os.path.isfile(path_dir + '/mra/Data.xlsx'):
+                os.remove(path_dir + '/mra/Data.xlsx')
                 print("Cleared {} ".format(path))
 
 

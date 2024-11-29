@@ -97,11 +97,27 @@ def gather_log_paths(log_path):
         for root, dirs, files in os.walk(log_path):
 
             for file in files: 
-                if file.endswith('Data.lsf.gz'):
 
-                    full_path = os.path.join(root)
+                if file == 'Digest.lsf.gz': 
+                    continue
+
+                if file.endswith('lsf.gz'):
+
+                    full_path = os.path.join(root, file)
                     lsf_files.append(full_path)
-                
+
+        for root, dirs, files in os.walk(log_path):
+
+            for file in files: 
+
+                if file == 'Digest.lsf.gz': 
+                    continue
+
+                if file.endswith('.lsf'):
+                    
+                    full_path = os.path.join(root, file)
+                    if not (full_path + '.gz' in lsf_files):
+                        lsf_files.append(full_path)
 
     except OSError:
 
@@ -112,21 +128,20 @@ def gather_log_paths(log_path):
     return lsf_files
 ## Export all log files 
 def export_logs(all_logs):
+
+    decompressed_logs = []
    
     try:
         print("## Exporting all log files ## \n")
 
         for f in all_logs:
-        
+            
+            # Check if the file actually needs to be decompressed 
+            if f.endswith('.gz'):
+
                 # Open the compressed 
-                comp_log = f + '/' + 'Data.lsf.gz'
-                uncomp_log =  f + '/' + 'Data.lsf'
-
-                # Check if given log was already decompressed 
-                if os.path.isfile(uncomp_log):
-
-                    print("File {} was already decompressed".format(f))
-                    continue
+                comp_log = f
+                uncomp_log =  f[:-3]
 
                 with gzip.open(comp_log, 'rb') as f_in:
 
@@ -134,14 +149,25 @@ def export_logs(all_logs):
                     with open(uncomp_log, 'wb') as f_out:
 
                         shutil.copyfileobj(f_in, f_out)
+                
+                print("Decompressed {}".format(comp_log))
 
-    except OSError as e:
+                decompressed_logs.append(uncomp_log)
+
+            else: 
+
+                decompressed_logs.append(f)
+    
+    except:
         
-        print("Not able to read file: {} \n Error: {}".format(e, f))
+        print("Not able to read file: {} \n Error: {}".format(f))
 
         if os.path.isfile(uncomp_log):
 
             os.remove(uncomp_log)
+    print("Decompressed {}".format(decompressed_logs))
+    return(decompressed_logs)
+
 ## Concantenate all those given logs
 def concatenate_logs(all_logs):
 
