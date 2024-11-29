@@ -20,7 +20,17 @@ classifiers = [
 ]
 dependencies = [
     "ifaddr ~= 0.2.0", 
-    "ipaddress ~= 1.0.23"
+    "ipaddress ~= 1.0.23",
+    "numpy",
+    "geopandas",
+    "plotly",
+    "xarray",
+    "Shapely",
+    "matplotlib",
+    "pandas",
+    "trio",
+    "openpyxl",
+    "xlsxwriter"
 ]
 
 [project.urls]
