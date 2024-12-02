@@ -141,6 +141,10 @@ class logDataGatherer():
         self.turbidity = []
         self.chloro = []
         self.pressure = []
+        self.thurster_actuation = []
+        self.set_servo_position = []
+        self.servo_position = []
+
         self.name = 'NoName'
         self.cols = []
 
@@ -353,6 +357,26 @@ class logDataGatherer():
         medium = [time, msg.medium]
         self.medium.append(medium)
 
+    def update_thruster_actuation(self, msg, callback):
+
+        time = msg._header.timestamp 
+        thruster = [time, msg.value]
+        self.thurster_actuation.append(thruster)
+
+    def update_set_servo_position(self, msg, callback):
+
+        time = msg._header.timestamp
+        which_servo = msg.id 
+        servo = [time, msg.id, msg.value]
+        self.set_servo_position.append(servo)
+
+    def update_servo_position(self, msg, callback):
+
+        time = msg._header.timestamp
+        which_servo = msg.id
+        servo_position = [time, which_servo, msg.value]
+        self.servo_position.append(servo_position)
+
     # Use to compute Density from CTD values
     def computeDensity(self):
 
@@ -473,7 +497,6 @@ class logDataGatherer():
         plt.show()
 
         """
-
 
     # Save the variables in a dataframe for easier parsing
     def create_dataframes(self):
