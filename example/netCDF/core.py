@@ -1,7 +1,6 @@
 from example.netCDF.utils import *
 import geopandas.geodataframe
 import matplotlib.pyplot as plt
-import seawater as sea
 import gsw 
 from datetime import datetime
 import pandas as pd
@@ -497,6 +496,69 @@ class logDataGatherer():
         plt.show()
 
         """
+
+    # Use to compute Density from CTD values
+    def exportActuators(self):
+        
+        cols_servos = ['D_SERVO', 'L_SERVO', 'R_SERVO', 'U_SERVO']
+        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA']
+        self.cols.append(cols_servos)
+        self.cols.append('THRUSTER')
+
+        # Check if all relevant information exists on the log
+        if not self.estimated_states:
+            raise Exception("Log has no ESTIMATED State")
+        
+        else:
+            self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA'])
+            self.df_positions = self.df_positions.sort_values(by='TIME')
+        
+        # Get all servo actuators
+        if not self.set_servo_position:
+            raise Exception("Log has no Servo Actuators")
+        
+        else: 
+            self.df_set_servo_position = pd.DataFrame(self.set_servo_position, columns=['TIME','ID','VAL'])
+
+            # Parse all available servo actuations
+            self.df_set_servo_position = self.df_set_servo_position.sort_values('TIME')
+            self.df_set_servo_position = self.df_set_servo_position.pivot_table(index = 'TIME', columns='ID', values='VAL').reset_index()
+
+            # After pivoting change the names 
+            self.df_set_servo_position.columns = ['TIME'] + [f'{col}' for col in cols_servos]                                                     
+            print(self.df_set_servo_position) 
+
+        # Get all servo positions
+        if not self.servo_position:
+            raise Exception("Log has no Servo Positions")
+
+        else:
+            self.df_servo_position = pd.DataFrame(self.servo_position, columns=['TIME', 'ID', 'VAL'])
+
+            # Parse all available servo positions
+            self.df_servo_position = self.df_servo_position.sort_values(by='TIME')
+            self.df_servo_position = self.df_servo_position.pivot_table(index = 'TIME', columns='ID', values='VAL').reset_index()
+
+            # After pivoting change the names 
+            self.df_servo_position.columns = ['TIME'] + [f'{col}' for col in cols_servos]      
+            print(self.df_servo_position)
+
+        # Get thruster actuations
+        if not self.thurster_actuation:
+            raise Exception("Log has no Thruster Actuations")
+
+        else:
+            self.df_thruster_actuation = pd.DataFrame(self.thurster_actuation, columns=['TIME', 'VEL'])
+            self.df_thruster_actuation = self.df_thruster_actuation.sort_values(by='TIME')
+
+        # Now merge all of the data 
+        self.df_actuators = pd.merge_asof(self.df_set_servo_position, self.df_thruster_actuation, on='TIME', 
+                                        direction='nearest', suffixes=('_df1', '_df2'))
+        
+        print(self.df_actuators)
+        
+        self.df_actuators.to_csv('outdata/actuators.csv', index=False)
+
 
     # Save the variables in a dataframe for easier parsing
     def create_dataframes(self):
