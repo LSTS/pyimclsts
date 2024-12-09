@@ -499,7 +499,7 @@ class logDataGatherer():
 
     # Use to compute Density from CTD values
     def exportActuators(self):
-        
+
         cols_servos = ['D_SERVO', 'L_SERVO', 'R_SERVO', 'U_SERVO']
         self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA']
         self.cols.append(cols_servos)
@@ -557,8 +557,7 @@ class logDataGatherer():
         
         print(self.df_actuators)
         self.df_actuators = merge_every_n_rows(self.df_actuators, 4)
-        self.df_actuators.to_csv('outdata/actuators.csv', index=False)
-
+        self.df_actuators.to_csv(self.file_name + '.csv')
 
     # Save the variables in a dataframe for easier parsing
     def create_dataframes(self):

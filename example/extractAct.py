@@ -21,7 +21,7 @@ for path in compressed_files_path:
 
         os.makedirs(path + '/mra')
     
-    logData = logDataGatherer(path + '/mra/ctd.xlsx')
+    logData = logDataGatherer('/mnt/sdb1/pyimclsts/outdata/file')
     src_file = path + '/Data.lsf'
 
     # Connect to the actual file
