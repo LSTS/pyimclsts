@@ -30,7 +30,9 @@ dependencies = [
     "pandas",
     "trio",
     "openpyxl",
-    "xlsxwriter"
+    "xlsxwriter",
+    "scipy",
+    "netCDF4"
 ]
 
 [project.urls]
