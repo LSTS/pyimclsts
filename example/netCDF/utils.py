@@ -10,6 +10,11 @@ c_wgs84_e2 = 0.00669437999013
 c_wgs84_ep2 = 0.00673949674228
 c_wgs84_f = 0.0033528106647475
 
+# Function to merge dataframe every 4 rows
+def merge_every_n_rows(df, n):
+    merged = df.groupby(df.index // n).agg(lambda x: x.first_valid_index() if x.isnull().all() else x.dropna().iloc[0])
+    return merged
+
 def computeRN(lat):
 
     lat_sin = np.sin(lat)

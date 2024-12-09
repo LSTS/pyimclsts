@@ -556,7 +556,7 @@ class logDataGatherer():
                                         direction='nearest', suffixes=('_df1', '_df2'))
         
         print(self.df_actuators)
-        
+        self.df_actuators = merge_every_n_rows(self.df_actuators, 4)
         self.df_actuators.to_csv('outdata/actuators.csv', index=False)
 
 
