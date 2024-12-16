@@ -19,7 +19,7 @@ import ipaddress as _ipaddress
 import struct as _struct
 import asyncio as _asyncio
 
-from typing import Any
+from typing import Any, Tuple
 
 # be = Big Endian, le = Little Endian
 
@@ -252,3 +252,99 @@ class tcp_interface(base_IO_interface):
     async def close(self) -> None:
         self._writer.close()
         await self._writer.wait_closed()
+
+
+class udp_interface(base_IO_interface):
+    """ 
+        Implementation of UDP interface. Unfortunately, to deal with UDP connections
+        We need to use lower-level asyncio methods. 
+    """
+
+    def __init__(self, in_ip : str, in_port : int, out_ip : str, out_port : int) -> None:
+        
+        self.in_ip = in_ip
+        self.in_port = in_port
+        self.out_ip = out_ip
+        self.out_port = out_port
+        self.transport = None
+        self.protocol = None
+        self.new_msg_buffer = bytearray()
+        self._incoming_data = _asyncio.Queue()
+        
+    async def open(self) -> None:
+
+        """ 
+        We get the running loop, that was probably started with asyncio.run
+        """
+        
+        # Get the event loop
+        loop = _asyncio.get_running_loop()
+        # Get the transport and provide a protocol, ip and port. 
+        # Transport will watch ip and port. If data is to be sent/received methods from protocol are called. 
+        # Those methods are what you define to be done in the lambda object you provide
+        self.transport, self.protocol = await loop.create_datagram_endpoint(
+            lambda : EchoUDPProtocol(self),
+            local_addr=(self.in_ip, self.in_port)
+            )
+
+    async def read(self, n_bytes: int) -> bytes:
+        
+        # Only retrieve form the asyncio if the bytearray is empty
+        if len(self.new_msg_buffer) < 1:
+            self.new_msg_buffer += await self._incoming_data.get()
+        
+        data = self.new_msg_buffer[:n_bytes]
+        
+        # Del the data that was retreived 
+        del self.new_msg_buffer[:n_bytes]
+
+        return data
+    
+    async def write(self, byte_string: bytes) -> None:
+        
+        # No transport was provided by the create_datagram_endpoint???? No good, partner
+        if self.transport is None:
+
+            raise RuntimeError("[UDP Connection] Transport is Unavailable. Make sure you the server is up and running")
+    
+        # If mgid is of announce of type we should also send it to the both the discovery udp ports and the regular dune udp port
+        mgid = int.from_bytes(byte_string[2:4], byteorder='little')
+        if mgid == 151:
+            discovery_port = [30100, 30101, 30102, 30103, 30104]
+            print("[UDP Connection] Announcing to ports 30100, 30101, 30102, 30103, 30104")
+            for port in discovery_port:
+                self.transport.sendto(byte_string, (self.out_ip, port))
+        
+        self.transport.sendto(byte_string, (self.out_ip, self.out_port))
+
+
+    async def close(self) -> None:
+        if self.transport:
+            self.transport.close()
+            print("[UDP Connection] Server Connection Terminated")
+
+
+
+class EchoUDPProtocol(_asyncio.DatagramProtocol):
+
+    """
+    When building a UDP interface you are essentially required
+    to build your own Datagram Protocol, and that is what this is. 
+    """
+
+    def __init__(self, io_interface : udp_interface):
+        
+        # Here we reference our parent class.
+        # This is required because we want to send the data that we receive to the asyncio.Queue
+        self.io_interface = io_interface
+
+    def connection_made(self, transport):
+        
+        self.transport = transport
+        self.io_interface.transport = transport
+
+        print("Opened Port: {} On IP: {}".format(self.io_interface.in_ip, self.io_interface.in_port))
+
+    def datagram_received(self, data, addr) -> None:
+         
+        self.io_interface._incoming_data.put_nowait(data)

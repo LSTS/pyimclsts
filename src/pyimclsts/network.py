@@ -135,7 +135,9 @@ def _get_id_src_src_ent(message : bytes) -> Tuple[int, int, int]:
 # Re-export some classes:
 
 tcp_interface = _core.tcp_interface
+udp_interface = _core.udp_interface
 file_interface = _core.file_interface
+
 
 class _message_bus():
     '''Injected dependency to 'simplify' common functionalities'''
@@ -161,9 +163,13 @@ class _message_bus():
         '''Unblock outgoing messages'''
         self._block_outgoing = False
 
-    def send(self, message : _pg._base.base_message, *, src : Optional[int] = None, src_ent : Optional[int] = None, 
-                        dst : Optional[int] = None, dst_ent : Optional[int] = None) -> None:
+    def send(self, message : _pg._base.base_message, *,
+             src : Optional[int] = None,
+             src_ent : Optional[int] = None, 
+             dst : Optional[int] = None, dst_ent : Optional[int] = None) -> None:
+        
         '''Wrapper around a queue (actually a pipe end).'''
+        #if message._header.type = cenas
         if not self._block_outgoing:
             self._send(message, src = src, src_ent = src_ent, dst = dst, dst_ent = dst_ent)
             
@@ -357,12 +363,13 @@ class message_bus_st(_message_bus):
     async def open(self):
         self._keep_running = True
 
+        # These are usefull to consume and send messages between co-routines in asyncio
         self._writer_queue = _asyncio.Queue()
         self._reader_queue = _asyncio.Queue()
 
         async def consume_output(io_interface : _core.base_IO_interface):
             '''Continuously read the pipe end to send messages'''
-            
+            print("Started Consume Output from IO_Interface Task")
             while self._keep_running:
                 try:
                     # flush queue or wait.
@@ -380,26 +387,32 @@ class message_bus_st(_message_bus):
             '''Continuously read the socket to deserialize messages'''
             
             buffer = bytearray()
+            print("Started Consume Input from IO_Interface Task")
             while self._keep_running:
                 try:
                     # magic number: 6 = sync number + (msgid + msgsize) size in bytes
                     if len(buffer) < 6:
                         buffer += await io_interface.read(6 - len(buffer))
-
+                    #    print("Step 1: Get size of message")
                     if int.from_bytes(buffer[:2], byteorder='little') == _pg._base._sync_number:
                         # get msg size
                         size = int.from_bytes(buffer[4:6], byteorder='little')
+                    #    print("Step 2: Size is {}".format(size))
+
                         # magic number: 22 = 20(header size) + 2(CRC) sizes in bytes.
                         read_size = max(size + 22 - len(buffer), 0)
                         buffer += await io_interface.read(read_size)
 
                         # Validate message, but do not unpack yet
                         unparsed_msg = bytes(buffer[:(size + 22)])
+
                         if _core.CRC16IMB(unparsed_msg[:-2]) == int.from_bytes(unparsed_msg[-2:], byteorder='little'):
+                        #    print("Step 3: Message validated")
                             await self._reader_queue.put(unparsed_msg)
                             # eliminate message from buffer
                             del buffer[:size + 22]
                         else:
+                        #    print("Step 2.5: Deserialization is fucked")
                             # deserialization failed:
                             # sync number is not followed by a sound/valid message. Remove it from buffer
                             # to look for next message
@@ -442,7 +455,8 @@ class message_bus_st(_message_bus):
             finally:
                 print('IO interface has been closed.')
                 await self._io_interface.close()
-
+        
+        # There is another loop here 
         self._task = _asyncio.create_task(main_loop())
     
     def close(self, max_wait : float = 1) -> None:
@@ -450,10 +464,16 @@ class message_bus_st(_message_bus):
         self._task.cancel()
         print('Message Bus has been closed.')
 
-    def _send(self, message : _pg._base.base_message, *, src : Optional[int] = None, src_ent : Optional[int] = None, 
-                        dst : Optional[int] = None, dst_ent : Optional[int] = None) -> None:
+    def _send(self,
+              message : _pg._base.base_message,
+              *,
+              src : Optional[int] = None,
+              src_ent : Optional[int] = None,
+              dst : Optional[int] = None,
+              dst_ent : Optional[int] = None) -> None:
+
         self._writer_queue.put_nowait(message.pack(is_big_endian=self._big_endian, src = src, src_ent = src_ent, 
-                        dst = dst, dst_ent = dst_ent))
+                                      dst = dst, dst_ent = dst_ent))
 
     async def recv(self) -> _pg._base.base_message:
         '''Wrapper around a queue (actually a pipe end). Blocks until a message is available.
@@ -482,6 +502,13 @@ class message_bus_st(_message_bus):
 
 class subscriber:
 
+    """
+    This is the class where we actually start the asyncio event loop
+    Its called subscriber because after a message is deciphered as an IMC message
+    we use a dictionaries that maps msg_id to callback funtions that are, you guessed it,
+    called if we receive such a message. 
+    """
+
     __slots__ = ['_msg_manager', '_subscriptions', '_subscripted_all', '_periodic', '_call_once', '_use_mp', '_peers', '_src2name', '_keep_running']
 
     def __init__(self, IO_interface : _core.base_IO_interface, *,big_endian=False, use_mp = False) -> None:
@@ -502,8 +529,8 @@ class subscriber:
         # a dictionary of {2: 'vehicle name'}
         self._src2name = dict()
         
+        # These are standard messages that we gather, to update all entities present in the ecossystem
         self.subscribe_async(self._abort, _pg.messages.Abort)
-        
         self.call_once(self._queryEntityList, delay=1)
         self.periodic_async(self._queryEntityList, period=300)
         self.subscribe_async(self._update_peers, _pg.messages.EntityInfo)
@@ -518,7 +545,11 @@ class subscriber:
             now = loop.time()
             await _asyncio.sleep(max(last_exec - now + _period, 0))
                 
-    async def _periodic_wrapper(self, _period : float, f : Callable, send_callback : Callable[[_core.IMC_message], None]):
+    async def _periodic_wrapper(self, _period : float,
+                                f : Callable,
+                                send_callback : Callable[
+                                    [_core.IMC_message], None]
+                                    ):
         loop = _asyncio.get_running_loop()
         f(send_callback)
         while True:
@@ -526,19 +557,32 @@ class subscriber:
             loop.call_later(_period, f, send_callback)
 
     async def _event_loop(self):
+        """
+            This is eesentially our main loop, from my understanding. 
+            It is called by the subscriber.run() 
+        """
+
+        # Get the msg_manager which contains an interface to whichever connection you established
         msg_mgr = self._msg_manager
         try:
+            # Open that connection
+            # When the connection is opened you are also creating an asynchronous task that handles data coming from your IO_Interface 
+            # REMINDER: that io_interface is inside _msg_manager
             if self._use_mp:
                 msg_mgr.open()
             else:
                 await msg_mgr.open()
             loop = _asyncio.get_running_loop()
-
+            
+            # Go over the dictionary of call_once callbacks
             for f, delay in self._call_once:
                 if delay is not None:
                     loop.call_later(delay, f, msg_mgr.send)
                 else:
                     f(msg_mgr.send)
+            
+            # At this point we have yet to actually send something. What the previous code block did is
+            # Add the messages that we want to sent to the asyncio.queue()
             
             # Binding references to background task objects so that they are not garbage collected
             tasks = []
@@ -547,6 +591,7 @@ class subscriber:
                     tasks.append(loop.create_task(self._periodic_wrapper_coro(period, f, msg_mgr.send)))
                 elif callable(f):
                     tasks.append(loop.create_task(self._periodic_wrapper(period, f, msg_mgr.send)))
+                    # I'll have to parse the message in the send. Ou seja 
                 else:
                     print(f'Warning: Given function {f} is neither Callable nor a coroutine.')
 
@@ -657,7 +702,17 @@ class subscriber:
             
         return False
     
-    def subscribe_async(self, callback : Callable[[_core.IMC_message, Callable[[_core.IMC_message], None]], None], msg_id : Optional[Union[int, _core.IMC_message, str, _types.ModuleType]] = None, *, src : Optional[str] = None, src_ent : Optional[str] = None):
+    def subscribe_async(self,
+                        callback : Callable[
+                            [_core.IMC_message, Callable[
+                                [_core.IMC_message], None]],
+                            None], 
+                        msg_id : Optional[
+                            Union[int, _core.IMC_message, str, _types.ModuleType]
+                            ] = None, *, 
+                        src : Optional[
+                            str] = None, src_ent : Optional[str] = None):
+        # Diabolical syntax #
         '''Appends the callback to the list of subscriptions to a message.
         msg_id can be provided as an int, the class of the message, its instance or a category (string (camel case) or module).
         src and src_ent should be provided as strings.
@@ -678,6 +733,8 @@ class subscriber:
         Tip: If the original function really needs arguments, wrap it with functools.partial.
         Tip2: Use a class instance to keep shared values across different calls. See followRef.py.
         '''
+
+        # Checking which the msg_id depending on the type of message it is
         key = None
         if isinstance(msg_id, _core.IMC_message):
             key = msg_id.Attributes.id
@@ -701,6 +758,7 @@ class subscriber:
         
         # There is either an explicit subscription (the key is not None) or 'all'
         # (msg_id is None). There cannot be both nor neither.
+        # We check if the function is already "async certified" 
         if (key is not None) ^ (msg_id is None):
             c = None
             if _inspect.iscoroutinefunction(callback):
