@@ -8,7 +8,9 @@
         "sdn_parameter_urn": "SDN:P01::ELTMEP01",
         "sdn_uom_name": "Days",
         "sdn_uom_urn": "SDN:P06::UTAA",
-        "QC_indicator": "unknown"
+        "QC_indicator": "unknown",
+        "units": "seconds since 1970-01-01"
+        
     },
     "DEPH": {
         "long_name": "Depth",

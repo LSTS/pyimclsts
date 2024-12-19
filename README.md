@@ -50,6 +50,7 @@ Essentially, `lsf2netcdf.py` will go through all the logs files in a directory, 
 In the last stage of the script's runtime, this final csv file will then be parsed and used to generate the a netCDF file. 
 If you're familiar with the format you will know that it usually contains various bits of metadata, some global, describing general info about the data contained in the file, and other, more specific, concerning the variables and coordinates, also, contained in the file. 
 Before you call `lsf2netdf.py`, you can go into the `metadata` directory and edit the .json files you find. These .jsons are then used to fill the metadata contained in the netCDF. 
+To be clear, you can add your own metadata in the JSON files, just be careful to stick with the correct format. 
 
 I shall now explain how to actually make use of this file and its arguments. 
 
