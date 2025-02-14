@@ -230,5 +230,26 @@
         "sensor_mount": NaN,
         "sensor_orientation": NaN,
         "QC_indicator": "unknown"
+    },
+    "PRES": {
+        "long_name": "Pressure",
+        "standard_name": "sea_water_pressure",
+        "units": "hPa",
+        "comment": NaN,
+        "ancillary_variables": NaN,
+        "sdn_parameter_name": "The force per unit area exerted by the water column on a mobile sensor located in the   water column.",
+        "sdn_parameter_urn": "SDN:P01::PRESPR01",
+        "sdn_uom_name": "Hectopascal",
+        "sdn_uom_urn": "SDN:P06::HPAX",
+        "sdn_instrument_name": "PAA-6X",
+        "sdn_instrument_urn": NaN ,
+        "sensor_manufacturer": "Keller AG",
+        "sensor_model": "PAA-6X",
+        "sensor_identifier": "SDN:L05::350",
+        "sensor_mount": "mounted_on_glider",
+        "sensor_identifier": "https://download.keller-druck.com/api/download/SR6kWpFB2xqmjWsQPJ2Tk8/en/latest.pdf",
+        "sensor_mount": NaN,
+        "sensor_orientation": NaN,
+        "QC_indicator": "unknown"
     }
 }
