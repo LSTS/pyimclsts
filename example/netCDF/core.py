@@ -279,7 +279,7 @@ class logDataGatherer():
             lat = item.lat 
             lon =  item.lon 
 
-            point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground]
+            point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground, item.vx, item.vy, item.vz]
             self.estimated_states.append(point)
     
     def update_temperature(self, msg, callback):
@@ -355,7 +355,7 @@ class logDataGatherer():
             raise Exception("Log has no ESTIMATED STATE")
         
         else:
-            self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA'])
+            self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'SURGE','HEAVE','SWAY'])
             self.df_positions = self.df_positions.sort_values(by='TIME')
 
         if not self.medium:
@@ -389,7 +389,7 @@ class logDataGatherer():
     # Merge all data into a single dataframe for later filtering
     def merge_data(self):
 
-        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'MEDIUM', 'PRES']
+        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'MEDIUM', 'PRES', 'SURGE', 'HEAVE', 'SWAY']
         
         # Do a sanity check and look for the sensor gathering oceanographic data
         # Also merge data by lowest frequency data which seems to always be the sound speed variable
