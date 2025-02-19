@@ -165,11 +165,14 @@ if __name__ == '__main__':
             # Go through the Entity info and check for the vehicle name
             key_with_entity_list = next((key for key, value in sub._peers.items() if 'EntityList' in value), None)
             key_with_entity_list = str(key_with_entity_list)
-            if 'lauv' in key_with_entity_list:
+            if 'lauv' or 'autonaut' in key_with_entity_list:
                 print("Log is coming from vehicle {}".format(key_with_entity_list))
                 logData.name = key_with_entity_list
-        
-            if not 'lauv' in logData.name:
+
+            if 'lauv' in logData.name or 'autonaut' in logData.name:
+                print("Valid vehile found in EntityList")
+
+            else: 
                 raise Exception("No Vehile found in EntityList")
 
             # Gather the remaining positions and place the remaining data in a readable formar
@@ -208,7 +211,6 @@ if __name__ == '__main__':
         path_dir = os.path.dirname(path.rstrip('/'))
 
         print("Concatenating file: {}".format(path))
-
 
         logData = path_dir + '/mra/Data.xlsx'
         

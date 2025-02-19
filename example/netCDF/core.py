@@ -358,12 +358,10 @@ class logDataGatherer():
             self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'SURGE','HEAVE','SWAY'])
             self.df_positions = self.df_positions.sort_values(by='TIME')
 
-        if not self.medium:
-            raise Exception("Log has no VEHICLE MEDIUM")
+        if self.medium:
+            self.df_vehicle_medium = pd.DataFrame(self.medium, columns=['TIME', 'MEDIUM'])
+            self.df_vehicle_medium = self.df_vehicle_medium.sort_values(by='TIME')
 
-        self.df_vehicle_medium = pd.DataFrame(self.medium, columns=['TIME', 'MEDIUM'])
-        self.df_vehicle_medium = self.df_vehicle_medium.sort_values(by='TIME')
- 
         self.df_temperatures = pd.DataFrame(self.temperature, columns=['TIME','SRC_ENT', 'TEMP'])
         self.df_temperatures = self.df_temperatures.sort_values(by='TIME')
 
@@ -389,7 +387,7 @@ class logDataGatherer():
     # Merge all data into a single dataframe for later filtering
     def merge_data(self):
 
-        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'MEDIUM', 'PRES', 'SURGE', 'HEAVE', 'SWAY']
+        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'PRES', 'SURGE', 'HEAVE', 'SWAY']
         
         # Do a sanity check and look for the sensor gathering oceanographic data
         # Also merge data by lowest frequency data which seems to always be the sound speed variable
@@ -461,17 +459,18 @@ class logDataGatherer():
         else:
             self.df_all_data = pd.merge_asof(self.df_all_data, self.df_positions, on='TIME',
                                              direction='nearest', suffixes=('_df1', '_df2'))
-        
-        if self.df_vehicle_medium.isnull().all().all():
+
+        if not self.medium:        
             print("NO VEHICLE MEDIUM FOUND")
         
         else: 
             self.df_all_data =  pd.merge_asof(self.df_all_data, self.df_vehicle_medium, on='TIME',
                                               direction='nearest', suffixes=('_df1','_df2'))
+            self.cols.append('MEDIUM')
         
         # Rearrange positions dataframe for better visibility
         self.df_all_data = self.df_all_data[self.cols]
-
+        
         # Turn the normal dataframe into geopandas dataframe for easier filtering 
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
@@ -500,6 +499,8 @@ class logDataGatherer():
             if (initial_rows - underwater_rows) > 0:
 
                 print("{} points were removed due to Underwater Filter".format(initial_rows - underwater_rows))
+                # Medium data is really not necessary after filtering
+                self.df_all_data = self.df_all_data.drop('MEDIUM', axis=1)
 
         else: 
             print("No underwater filter was specified")
@@ -524,11 +525,7 @@ class logDataGatherer():
         if self.df_all_data.isnull().all().all():
 
             raise Exception("log was filtered out")
-        
-        # Medium data is really not necessary after filtering
-        self.df_all_data = self.df_all_data.drop('MEDIUM', axis=1)
-
-        
+                
     def write_to_file(self):
 
         if not self.df_all_data.isnull().all().all():  
