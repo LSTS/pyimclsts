@@ -140,6 +140,7 @@ class logDataGatherer():
         self.name = 'NoName'
         self.cols = []
         self.pressure = []
+        self.d02 = []
 
         ## Usefull for parsing 
         self.sensor_ent = -1
@@ -294,6 +295,12 @@ class logDataGatherer():
         press = [time, msg.value]
         self.pressure.append(press)
 
+    def update_d02(self, msg, callback):
+
+        time = msg._header.timestamp
+        d02 = [time, msg.value]
+        self.d02.append(d02)
+        
     def update_state(self, msg, callback):
         
         time = msg._header.timestamp
@@ -361,6 +368,10 @@ class logDataGatherer():
         if self.medium:
             self.df_vehicle_medium = pd.DataFrame(self.medium, columns=['TIME', 'MEDIUM'])
             self.df_vehicle_medium = self.df_vehicle_medium.sort_values(by='TIME')
+        
+        if self.d02:
+            self.df_d02 = pd.DataFrame(self.d02, columns=['TIME', 'D02'])
+            self.df_d02 = self.df_d02.sort_values(by='TIME')
 
         self.df_temperatures = pd.DataFrame(self.temperature, columns=['TIME','SRC_ENT', 'TEMP'])
         self.df_temperatures = self.df_temperatures.sort_values(by='TIME')
@@ -467,6 +478,15 @@ class logDataGatherer():
             self.df_all_data =  pd.merge_asof(self.df_all_data, self.df_vehicle_medium, on='TIME',
                                               direction='nearest', suffixes=('_df1','_df2'))
             self.cols.append('MEDIUM')
+        
+        if not self.d02:
+            print("NO DISSOLVED OXYGEN FOUND")
+
+        else:
+
+            self.df_d02 = pd.merge_asof(self.df_all_data, self.df_d02, on='TIME',
+                                        direction='nearest', suffixes=('_df1', '_df2'))
+            self.cols.append('D02')
         
         # Rearrange positions dataframe for better visibility
         self.df_all_data = self.df_all_data[self.cols]

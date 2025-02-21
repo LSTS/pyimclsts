@@ -158,6 +158,7 @@ if __name__ == '__main__':
             sub.subscribe_async(logData.update_chloro, msg_id=pg.messages.Chlorophyll)
             sub.subscribe_async(logData.update_vehicle_medium, msg_id=pg.messages.VehicleMedium)
             sub.subscribe_async(logData.update_pressure, msg_id=pg.messages.Pressure)
+            sub.subscribe_async(logData.update_d02, msg_id=pg.messages.DissolvedOxygen)
 
             # Run the even loop (This is asyncio witchcraft)
             sub.run()
