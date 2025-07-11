@@ -288,11 +288,25 @@ if __name__ == '__main__':
     
     # Hardcode IMC types to python types
     imc_types = dict()
-    for t in metadata_encyclopedia['types']['types']:
-        # "Deduce" types by their description.
-        imc_types[t] =  float if 'float' in metadata_encyclopedia['types']['types'][t]['description'] else \
-                        int if 'integer' in metadata_encyclopedia['types']['types'][t]['description'] else \
-                        None
+
+    # Check if metadata_encyclopedia is a list
+    if isinstance(metadata_encyclopedia['types'], list):
+        # iterate through the list of types
+        for t in metadata_encyclopedia['types']:
+            # "Deduce" types by their name with a simple heuristic using a switch
+            if 'int' in t.lower():
+                imc_types[t] = int
+            elif 'fp' in t.lower():
+                imc_types[t] = float
+            else:
+                imc_types[t] = None
+    else:
+        for t in metadata_encyclopedia['types']['types']:
+            # "Deduce" types by their description.
+            imc_types[t] =  float if 'fp' in t.lower() else \
+                            int if 'int' in t.lower() else \
+                            float if 'float' in metadata_encyclopedia['types']['types'][t]['description'] else \
+                            int if 'integer' in metadata_encyclopedia['types']['types'][t]['description'] else None
     imc_types['rawdata'] = bytes
     imc_types['plaintext'] = str
     imc_types['message'] = '<class \'IMC_message\'>'
@@ -344,7 +358,12 @@ if __name__ == '__main__':
     file_name = '_base.py'
     with open(str(lib_location) + '/' + file_name, mode = 'r', encoding='utf-8') as f_in:
         base_templates = f_in.read()
-        base_templates = base_templates.replace('%SYNCH_NUMBER%', hex(metadata_encyclopedia['header']['fields']['sync']['value']))
+        # Check if metadata_encyclopedia['header']['fields'] exists
+        if 'header' not in metadata_encyclopedia or 'fields' not in metadata_encyclopedia['header']:
+            sync_hex = hex(metadata_encyclopedia['header']['sync']['value'])
+        else:
+            sync_hex = hex(metadata_encyclopedia['header']['fields']['sync']['value'])
+        base_templates = base_templates.replace('%SYNCH_NUMBER%', sync_hex)
         base_templates = base_templates.replace('%IMC_TYPES%', str(imc_types).replace('<class \'', '').replace("'>",'').replace('"',''))
         base_templates = base_templates.replace('%MESSAGE_ATTRIBUTES%', str([s.replace('-','') for s in message_attributes]))
 
