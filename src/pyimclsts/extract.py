@@ -13,6 +13,7 @@ import argparse
 
 import urllib.request
 import ssl
+import gzip
 
 _target_folder = 'pyimc_generated'
 
@@ -247,6 +248,20 @@ if __name__ == '__main__':
         message_list = set() # should never happen
     
     file = 'IMC.xml'
+    # Check if IMC.xml does not exists in the current directory
+    if not os.path.isfile(file):
+        print(f'File {file} not found in current directory. Attempting to use a GZipped one...')
+        fileGzip = 'IMC.xml.gz'
+        if not os.path.isfile(fileGzip):
+            print(f'File {fileGzip} not found in current directory. Attempting to download it from the default repository...')
+        else:
+            print(f'Found {fileGzip} in current directory. Using it...')
+            # Gunzip the file
+            with gzip.open(fileGzip, 'rb') as f_in:
+                with open('IMC.xml', 'wb') as f_out:
+                    f_out.write(f_in.read())
+                    print(f'Unzipped {fileGzip} to IMC.xml')
+
     try:
         tree = ET.parse(file)
         print(f'Reading {file} from current directory...')
