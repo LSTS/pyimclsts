@@ -115,6 +115,11 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+tutorial_env/
+tutorial-env/
+
+# Generated py imc
+pyimc_generated/
 
 # Spyder project settings
 .spyderproject
