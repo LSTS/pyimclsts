@@ -10,29 +10,29 @@ c_wgs84_e2 = 0.00669437999013
 c_wgs84_ep2 = 0.00673949674228
 c_wgs84_f = 0.0033528106647475
 
-def computeRN(lat):
+def computeRN(latRads):
 
-    lat_sin = np.sin(lat)
+    lat_sin = np.sin(latRads)
     return (c_wgs84_a / np.sqrt(1 - c_wgs84_e2 * (lat_sin**2)))
 
-def toECEF(lat, lon, depth):
+def toECEF(latRads, lonRads, depth):
 
-    cos_lat = np.cos(lat)
-    sin_lat = np.sin(lat)
-    cos_lon = np.cos(lon)
-    sin_lon = np.sin(lon)
+    cos_lat = np.cos(latRads)
+    sin_lat = np.sin(latRads)
+    cos_lon = np.cos(lonRads)
+    sin_lon = np.sin(lonRads)
     
-    # Compute the radious of earth at this given latitude
-    rn = computeRN(lat)
+    # Compute the radius of earth at this given latitude
+    rn = computeRN(latRads)
 
     x = (rn - depth) * cos_lat * cos_lon
     y = (rn - depth) * cos_lat * sin_lon
     z = ( ( (1.0 - c_wgs84_e2) * rn) - depth) * sin_lat
     return x,y,z   
 
-def n_rad(lat):
+def n_rad(latRads):
 
-    lat_sin = np.sin(lat)
+    lat_sin = np.sin(latRads)
     return c_wgs84_a / np.sqrt(1 - c_wgs84_e2*(lat_sin**2))
 
 # comment this once given the chance
@@ -59,24 +59,24 @@ def fromECEF(x, y, z):
 
     return lat, lon, depth 
 
-def WGS84displacement(latDegrees1, lonDegrees1, depth1, latDegrees2, lonDegrees2, depth2):
+def WGS84displacement(latRads1, lonRads1, depth1, latRads2, lonRads2, depth2):
     
     cs1 = []
     cs2 = []
 
     # Get the coordinates to ECEF format
-    cs1.extend(toECEF(latDegrees1, lonDegrees1, depth1))
-    cs2.extend(toECEF(latDegrees2, lonDegrees2, depth2))
+    cs1.extend(toECEF(latRads1, lonRads1, depth1))
+    cs2.extend(toECEF(latRads2, lonRads2, depth2))
 
     # Calculate the displacement between the two points 
     ox = cs2[0] - cs1[0]
     oy = cs2[1] - cs1[1]
     oz = cs2[2] - cs1[2]
 
-    slat = np.sin(latDegrees1)
-    clat = np.cos(latDegrees1)
-    slon = np.sin(lonDegrees1)
-    clon = np.cos(lonDegrees1)
+    slat = np.sin(latRads1)
+    clat = np.cos(latRads1)
+    slon = np.sin(lonRads1)
+    clon = np.cos(lonRads1)
 
     ret = []
 
