@@ -234,7 +234,7 @@ if __name__ == '__main__':
                 os.makedirs(path + '/mra')
             
             src_file = path + '/Data.lsf'
-            src_xlsx_file = path + '/mra/' + output_name + '.xlsx'
+            src_xlsx_file = path + '/mra/' + 'Statistics' + '.xlsx'
 
             try:
                 # Connect to the actual file
