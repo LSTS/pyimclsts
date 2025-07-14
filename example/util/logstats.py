@@ -497,7 +497,7 @@ class LogStats:
         # self.variables = dict(sorted(self.variables.items()))
         # sort the values acording to thir keys
         for key, value in self.variables.items():
-            value = dict(sorted(value.items()))
+            self.variables[key] = dict(sorted(value.items()))
 
 
     def __str__(self):
