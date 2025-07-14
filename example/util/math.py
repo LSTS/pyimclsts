@@ -1,4 +1,5 @@
 import math
+from collections import deque
 
 
 def haversine(lat1, lon1, lat2, lon2, degrees=False):
@@ -162,3 +163,70 @@ class MeanStats:
     def sample_size(self):
         """Return the number of data points in the sample."""
         return self._sample_size
+
+
+class SlidingWindow:
+    def __init__(self, window_size: int = 10):
+        """
+        Initialize the sliding window filter.
+        :param window_size: The size of the sliding window.
+        """
+        if window_size <= 0:
+            raise ValueError("Window size must be a positive integer.")
+        self.window_size = window_size
+        self._values = deque(maxlen=window_size)
+        self._sum = 0.0
+        self._sum_sq = 0.0
+
+    def clear(self):
+        """Reset the filter."""
+        self._values.clear()
+        self._sum = 0.0
+        self._sum_sq = 0.0
+
+    def update(self, value: float):
+        """
+        Update the window with a new value.
+        :param value: The new data point.
+        """
+        if len(self._values) == self.window_size:
+            # The oldest value is about to be evicted
+            old_value = self._values[0]
+            self._sum -= old_value
+            self._sum_sq -= old_value**2
+
+        self._values.append(value)
+        self._sum += value
+        self._sum_sq += value**2
+
+    def mean(self) -> float:
+        """Return the current mean of the values in the window."""
+        if not self._values:
+            return 0.0
+        return self._sum / len(self._values)
+
+    def std_dev(self) -> float:
+        """
+        Return the standard deviation of the values in the window.
+        """
+        n = len(self._values)
+        if n < 2:
+            return 0.0
+        
+        mean = self.mean()
+        # Variance = E[X^2] - (E[X])^2
+        variance = (self._sum_sq / n) - (mean**2)
+        
+        # The variance can be slightly negative due to floating point inaccuracies
+        if variance < 0:
+            return 0.0
+            
+        return math.sqrt(variance)
+
+    def sample_size(self) -> int:
+        """Return the current number of values in the window."""
+        return len(self._values)
+
+    def is_full(self) -> bool:
+        """Check if the window is full."""
+        return len(self._values) == self.window_size
