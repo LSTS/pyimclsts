@@ -212,8 +212,8 @@ if __name__ == '__main__':
 
     globalStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis,
                            smooth_filter=smooth_filter, sliding_window_size=smooth_filter_window)
-    globalStats.voltageEntities = voltage_entities
-    globalStats.temperatureEntities = temperature_entities
+    globalStats.voltage_entities = voltage_entities
+    globalStats.temperature_entities = temperature_entities
 
     #script_dir = os.path.dirname(os.path.abspath(__file__))
     #src_global_xlsx_file = script_dir + '/' + output_name + '.xlsx'
@@ -233,12 +233,12 @@ if __name__ == '__main__':
                   "-------------------------------------------------------------------------------\n"
                   .format(path))
 
-            globalStats.entitiesMappings.clear()
+            globalStats.entities_mappings.clear()
             logStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis,
                                 smooth_filter = smooth_filter, sliding_window_size = smooth_filter_window)
-            logStats.systemName = globalStats.systemName
-            logStats.voltageEntities = voltage_entities
-            logStats.temperatureEntities = temperature_entities
+            logStats.system_name = globalStats.system_name
+            logStats.voltage_entities = voltage_entities
+            logStats.temperature_entities = temperature_entities
 
             if not os.path.isdir(path + '/mra'):
                 os.makedirs(path + '/mra')
@@ -252,10 +252,10 @@ if __name__ == '__main__':
                 sub = n.subscriber(n.file_interface(input = src_file), use_mp=True)
                 #print("EXPORTING: {} to xlsx file \n".format(src_file))
 
-                globalStats.numberOfLogs += 1
+                globalStats.number_of_logs += 1
                 globalStats.new_log_name(os.path.basename(path.rstrip('/')))
-                logStats.sourceId = source_id
-                logStats.numberOfLogs += 1
+                logStats.source_id = source_id
+                logStats.number_of_logs += 1
                 logStats.new_log_name(os.path.basename(path.rstrip('/')))
                 
                 # Subscribe to specific variables and provide sub with a callback function
@@ -265,7 +265,7 @@ if __name__ == '__main__':
                 sub.subscribe_async(logStats.update_state, msg_id = pg.messages.EstimatedState)
 
                 # Announce
-                if globalStats.systemName is None:
+                if globalStats.system_name is None:
                     sub.subscribe_async(globalStats.update_name, msg_id = pg.messages.Announce)
                     sub.subscribe_async(logStats.update_name, msg_id = pg.messages.Announce)
 
@@ -291,8 +291,8 @@ if __name__ == '__main__':
                         entity_list = sub._peers[key_with_entity_list]['EntityList']
                         # Populate entitiesMappings
                         for entity_name in entity_list:
-                            globalStats.entitiesMappings[entity_name] = entity_list[entity_name]
-                            logStats.entitiesMappings[entity_name] = entity_list[entity_name]
+                            globalStats.entities_mappings[entity_name] = entity_list[entity_name]
+                            logStats.entities_mappings[entity_name] = entity_list[entity_name]
                 except Exception as e:
                     pass
 
@@ -306,22 +306,22 @@ if __name__ == '__main__':
                 logStats.finalize()
                 logStats.map_unnamed_variables_to_named()
                 globalStats.map_unnamed_variables_to_named()
-                globalStats.entitiesMappings.clear()
+                globalStats.entities_mappings.clear()
             
             # Print the statistics
             print("\n\n*** STATISTICS *** {}".format(path))
             print(logStats)
 
-            if logStats.systemName:
-                filename_suffix = '_{}.xlsx'.format(logStats.systemName)
+            if logStats.system_name:
+                filename_suffix = '_{}.xlsx'.format(logStats.system_name)
             else:
-                filename_suffix = '_0x{:04X}.xlsx'.format(logStats.sourceId)
+                filename_suffix = '_0x{:04X}.xlsx'.format(logStats.source_id)
             src_xlsx_file_final = src_xlsx_file.replace('.xlsx', filename_suffix)
             with pd.ExcelWriter(src_xlsx_file_final, engine='xlsxwriter') as writer:
                 logStats.write_to_file(writer, sheet_name="Global Statistics")
             
-            if len(logStats.logNames) > 0:
-                logStats.write_to_file(writer_global, sheet_name=logStats.logNames[0])
+            if len(logStats.log_names) > 0:
+                logStats.write_to_file(writer_global, sheet_name=logStats.log_names[0])
             
             log_processing_end_time = datetime.now()
             processing_end_time = log_processing_end_time
