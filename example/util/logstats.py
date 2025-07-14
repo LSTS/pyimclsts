@@ -5,7 +5,7 @@ import math
 from datetime import datetime
 
 from example.netCDF.core import locationType
-from example.util.math import CircularMean, MeanStats, haversine
+from example.util.math import CircularMean, MeanStats, SlidingWindow, haversine
 from example.util.units import *
 
 import pyimc_generated as pg
@@ -13,7 +13,7 @@ import pyimc_generated as pg
 
 class LogStats:
 
-    def __init__(self, source_id: int = 0x0000, jump_time_millis: int = 10000):
+    def __init__(self, source_id: int = 0x0000, jump_time_millis: int = 10000, smooth_filter: bool = False, sliding_window_size: int = 10):
         self.BATTERIES_STR: Final[str] = 'Batteries'
         self.VOLTAGE_STR: Final[str] = 'Voltage'
         self.TEMPERATURE_STR: Final[str] = 'Temperature'
@@ -23,6 +23,9 @@ class LogStats:
         self.units_mappings[self.TEMPERATURE_STR] = '°C'
 
         self._jump_time_millis = jump_time_millis
+
+        self._smooth_filter = smooth_filter
+        self._sliding_window_size = sliding_window_size
 
         self.logNames = []
         self._newLogName = None
@@ -66,17 +69,34 @@ class LogStats:
         self.numberOfLogs = 0
 
         self.distance = 0.0  # Total distance traveled in meters
+        # smoothed
+        self.distance_smoothed = 0.0  # Total distance traveled in meters
 
         self.lastLocation = None
+        self._last_lat_rads_sliding_window = SlidingWindow(window_size=self._sliding_window_size)
+        self._last_lon_rads_sliding_window = SlidingWindow(window_size=self._sliding_window_size)
 
         self.avgSpeedMpsCalc = float('NaN')
+        # smoothed
+        self.avgSpeedSmoothedMpsCalc = float('NaN')
+
         self.minSpeedMps = float('NaN')
         self.maxSpeedMps = float('NaN')
         self.avgSpeedMps = MeanStats()
+        # smoothed
+        self.minSpeedSmoothedMps = float('NaN')
+        self.maxSpeedSmoothedMps = float('NaN')
+        self.avgSpeedSmoothedMps = MeanStats()
+        self._speed_sliding_window = SlidingWindow(window_size=self._sliding_window_size)
 
         self.minVSpeedMps = float('NaN')
         self.maxVSpeedMps = float('NaN')
         self.avgVSpeedMps = MeanStats()
+        # smoothed
+        self.minVSpeedSmoothedMps = float('NaN')
+        self.maxVSpeedSmoothedMps = float('NaN')
+        self.avgVSpeedSmoothedMps = MeanStats()
+        self._vspeed_sliding_window = SlidingWindow(window_size=self._sliding_window_size)
 
         # Dictonary for other variables (min, max, avg)
         self.variables = {}
@@ -151,6 +171,20 @@ class LogStats:
         if msg._header.src != self.sourceId:
             return
 
+        if self.lastLocation is not None:
+            if self.curTimeMillis - self.lastMillis > self._jump_time_millis:
+                self._last_lat_rads_sliding_window.clear()
+                self._last_lon_rads_sliding_window.clear()
+                self._speed_sliding_window.clear()
+                self._vspeed_sliding_window.clear()
+
+        if self.lastLocation is None:
+            self._last_lat_rads_sliding_window.clear()
+            self._last_lon_rads_sliding_window.clear()
+            self._speed_sliding_window.clear()
+            self._vspeed_sliding_window.clear()
+
+
         height = msg.height
         self.minHeight = min(self.minHeight, height) if not math.isnan(self.minHeight) else height
         self.maxHeight = max(self.maxHeight, height) if not math.isnan(self.maxHeight) else height
@@ -177,14 +211,26 @@ class LogStats:
         self.minPitchRads = min(self.minPitchRads, theta) if not math.isnan(self.minPitchRads) else theta
         self.avgPitchRads.update(theta)
 
-        self.maxVSpeedMps = max(self.maxVSpeedMps, msg.vz) if not math.isnan(self.maxVSpeedMps) else msg.vz
-        self.minVSpeedMps = min(self.minVSpeedMps, msg.vz) if not math.isnan(self.minVSpeedMps) else msg.vz
-        self.avgVSpeedMps.update(msg.vz)
+        vspeed = msg.vz
+        self.maxVSpeedMps = max(self.maxVSpeedMps, vspeed) if not math.isnan(self.maxVSpeedMps) else vspeed
+        self.minVSpeedMps = min(self.minVSpeedMps, vspeed) if not math.isnan(self.minVSpeedMps) else vspeed
+        self.avgVSpeedMps.update(vspeed)
+        self._vspeed_sliding_window.update(vspeed)
+        vspeed_smoothed = self._vspeed_sliding_window.mean()
+        self.maxVSpeedSmoothedMps = max(self.maxVSpeedSmoothedMps, vspeed_smoothed) if not math.isnan(self.maxVSpeedSmoothedMps) else vspeed_smoothed
+        self.minVSpeedSmoothedMps = min(self.minVSpeedSmoothedMps, vspeed) if not math.isnan(self.minVSpeedSmoothedMps) else vspeed_smoothed
+        self.avgVSpeedSmoothedMps.update(vspeed_smoothed)
 
         hspeed = math.sqrt(msg.vx** 2 + msg.vy ** 2)
         self.maxSpeedMps = max(self.maxSpeedMps, hspeed) if not math.isnan(self.maxSpeedMps) else hspeed
         self.minSpeedMps = min(self.minSpeedMps, hspeed) if not math.isnan(self.minSpeedMps) else hspeed
         self.avgSpeedMps.update(hspeed)
+        self._speed_sliding_window.update(hspeed)
+        hspeed_smoothed = self._speed_sliding_window.mean() if self._smooth_filter else hspeed
+        self.maxSpeedSmoothedMps = max(self.maxSpeedSmoothedMps, hspeed_smoothed) if not math.isnan(self.maxSpeedSmoothedMps) else hspeed_smoothed
+        self.minSpeedSmoothedMps = min(self.minSpeedSmoothedMps, hspeed) if not math.isnan(self.minSpeedSmoothedMps) else hspeed_smoothed
+        self.avgSpeedSmoothedMps.update(hspeed_smoothed)
+        
 
         self.curTimeMillis = msg._header.timestamp * 1000.0  # Convert to milliseconds
 
@@ -196,7 +242,7 @@ class LogStats:
             self.logNames.append("{}/{}".format(logDay, self._newLogName))
             self._newLogName = None
 
-        if not (self.lastLocation is None):
+        if self.lastLocation is not None:
             if self.curTimeMillis - self.lastMillis > self._jump_time_millis:
                 self.lastLocation = None
                 if not math.isnan(self._durationTravelledMillisTmp):
@@ -230,6 +276,9 @@ class LogStats:
                 self._durationTravelledMillisTmp = float('NaN')
             self._durationTravelledMillisTmp = 0
             
+            self._last_lat_rads_sliding_window.update(self.lastLocation.lat)
+            self._last_lon_rads_sliding_window.update(self.lastLocation.lon)
+
             self.numStates += 1
             return
 
@@ -255,9 +304,23 @@ class LogStats:
 
         #distH = self.curLocation.getHorizontalDistanceInMeters(self.lastLocation)
         dist = haversine(self.lastLocation.lat, self.lastLocation.lon, self.curLocation.lat, self.curLocation.lon, degrees=False)
-
         #print("Distance between {}° {}° and {}° {}°: {}m vs {}m".format(math.degrees(self.lastLocation.lat), math.degrees(self.lastLocation.lon), math.degrees(self.curLocation.lat), math.degrees(self.curLocation.lon), dist, distH))
         self.distance += dist
+
+        if self._smooth_filter:
+            smoothed_last_loc = locationType()
+            smoothed_last_loc.__init__()
+            smoothed_last_loc.lat = self._last_lat_rads_sliding_window.mean()
+            smoothed_last_loc.lon = self._last_lon_rads_sliding_window.mean()
+            self._last_lat_rads_sliding_window.update(self.curLocation.lat)
+            self._last_lon_rads_sliding_window.update(self.curLocation.lon)
+            smoothed_cur_loc = locationType()
+            smoothed_cur_loc.__init__()
+            smoothed_cur_loc.lat = self._last_lat_rads_sliding_window.mean()
+            smoothed_cur_loc.lon = self._last_lon_rads_sliding_window.mean()
+            #distH = smoothed_cur_loc.getHorizontalDistanceInMeters(self.smoothed_last_loc)
+            dist_smoothed = haversine(smoothed_last_loc.lat, smoothed_last_loc.lon, smoothed_cur_loc.lat, smoothed_cur_loc.lon, degrees=False)
+            self.distance_smoothed += dist_smoothed
 
         self.lastLocation = self.curLocation
         self.endMillis = self.curTimeMillis
@@ -420,14 +483,16 @@ class LogStats:
         #    self.avgSpeedMpsCalc = self.distance / ((self.endMillis - self.startMillis) / 1000.0)
         if (self.durationTravelledMillis) > 0:
             self.avgSpeedMpsCalc = self.distance / (self.durationTravelledMillis / 1000.0)
+            self.avgSpeedSmoothedMpsCalc = self.distance_smoothed / (self.durationTravelledMillis / 1000.0)
         else:
             self.avgSpeedMpsCalc = 0
+            self.avgSpeedSmoothedMpsCalc = 0
     
 
     def __str__(self):
         """String representation of the statistics."""
         output = []
-        justify = 30
+        justify = 37
         output.append("{}: {}".format("Log Name".ljust(justify), ", ".join(self.logNames)))
         output.append("{}: {}".format("Log Days".ljust(justify), ", ".join(self.logDays)))
         
@@ -445,16 +510,32 @@ class LogStats:
                 "Duration".ljust(justify), self.durationDaysPart, self.durationHoursPart, self.durationMinutesPart, self.durationSecondsPart))
 
             output.append("{}: {:.1f} m | {:.2f} NM".format("Distance".ljust(justify), self.distance, self.distance * METERS_TO_NM))
-            avgSpeedKnotsCalc = self.avgSpeedMpsCalc * MPS_TO_KNOTS
+            if self._smooth_filter:
+                output.append("{}: {:.1f} m | {:.2f} NM".format("Distance Smoothed".ljust(justify), self.distance_smoothed, self.distance_smoothed * METERS_TO_NM))
             
+            if self._smooth_filter:
+                output.append("{}: {} elements".format("Smooth Window".ljust(justify), self._sliding_window_size))
+
+            avgSpeedKnotsCalc = self.avgSpeedMpsCalc * MPS_TO_KNOTS
             output.append("{}: {:.2f} m/s : {:.2f} kn".format("Average Speed Calc by Time".ljust(justify), self.avgSpeedMpsCalc, avgSpeedKnotsCalc))
+
+            if self._smooth_filter:
+                avgSpeedKnotsCalcSmoothed = self.avgSpeedSmoothedMpsCalc * MPS_TO_KNOTS
+                output.append("{}: {:.2f} m/s : {:.2f} kn".format("Average Speed Calc by Time Smoothed".ljust(justify), self.avgSpeedSmoothedMpsCalc, avgSpeedKnotsCalcSmoothed))
 
             output.append("{}: Min: {:.2f} m/s : {:.2f} kn | Max: {:.2f} m/s : {:.2f} kn | Avg: {:.2f} m/s : {:.2f} kn | Std Dev: {:.2f} m/s : {:.2f} kn".format(
                 "Speed".ljust(justify), self.minSpeedMps, self.minSpeedMps * MPS_TO_KNOTS, 
                 self.maxSpeedMps, self.maxSpeedMps * MPS_TO_KNOTS, 
                 self.avgSpeedMps.mean(), self.avgSpeedMps.mean() * MPS_TO_KNOTS, 
                 self.avgSpeedMps.std_dev(), self.avgSpeedMps.std_dev() * MPS_TO_KNOTS))
-            
+            if self._smooth_filter:
+                output.append("{}: Min: {:.2f} m/s : {:.2f} kn | Max: {:.2f} m/s : {:.2f} kn | Avg: {:.2f} m/s : {:.2f} kn | Std Dev: {:.2f} m/s : {:.2f} kn".format(
+                    "Speed Smoothed".ljust(justify), self.minSpeedSmoothedMps, self.minSpeedSmoothedMps * MPS_TO_KNOTS, 
+                    self.maxSpeedSmoothedMps, self.maxSpeedSmoothedMps * MPS_TO_KNOTS, 
+                    self.avgSpeedSmoothedMps.mean(), self.avgSpeedSmoothedMps.mean() * MPS_TO_KNOTS, 
+                    self.avgSpeedSmoothedMps.std_dev(), self.avgSpeedSmoothedMps.std_dev() * MPS_TO_KNOTS))
+
+
             if not math.isnan(self.minVSpeedMps) and not math.isnan(self.maxVSpeedMps) \
                     and self.minVSpeedMps == self.maxVSpeedMps and self.maxVSpeedMps > 0:
                 output.append("{}: Min: {:.2f} m/s : {:.2f} kn | Max: {:.2f} m/s : {:.2f} kn | Avg: {:.2f} m/s : {:.2f} kn | Std Dev: {:.2f} m/s : {:.2f} kn".format(
@@ -462,6 +543,12 @@ class LogStats:
                     self.maxVSpeedMps, self.maxVSpeedMps * MPS_TO_KNOTS, 
                     self.avgVSpeedMps.mean(), self.avgVSpeedMps.mean() * MPS_TO_KNOTS, 
                     self.avgVSpeedMps.std_dev(), self.avgVSpeedMps.std_dev() * MPS_TO_KNOTS))
+                if self._smooth_filter:
+                    output.append("{}: Min: {:.2f} m/s : {:.2f} kn | Max: {:.2f} m/s : {:.2f} kn | Avg: {:.2f} m/s : {:.2f} kn | Std Dev: {:.2f} m/s : {:.2f} kn".format(
+                        "Vertical Speed Smoothed".ljust(justify), self.minVSpeedSmoothedMps, self.minVSpeedSmoothedMps * MPS_TO_KNOTS, 
+                        self.maxVSpeedSmoothedMps, self.maxVSpeedSmoothedMps * MPS_TO_KNOTS, 
+                        self.avgVSpeedSmoothedMps.mean(), self.avgVSpeedSmoothedMps.mean() * MPS_TO_KNOTS, 
+                        self.avgVSpeedSmoothedMps.std_dev(), self.avgVSpeedSmoothedMps.std_dev() * MPS_TO_KNOTS))
 
             if not math.isnan(self.minLatRads) and not math.isnan(self.maxLatRads):
                 output.append("{}: Min: {:.7f}° | Max: {:.7f}° | Avg: {:.7f}° | Std Dev: {:.7f}°".format(
@@ -561,11 +648,11 @@ class LogStats:
 
         # Set column widths to make the report more readable.
         # The width is an approximation of the number of characters.
-        sheet.set_column('A:A', 30)
-        sheet.set_column('B:B', 30)
-        sheet.set_column('C:C', 30)
-        sheet.set_column('D:D', 30)
-        sheet.set_column('E:Z', 30)
+        sheet.set_column('A:A', 37)
+        sheet.set_column('B:B', 37)
+        sheet.set_column('C:C', 37)
+        sheet.set_column('D:D', 37)
+        sheet.set_column('E:Z', 37)
 
         sheet.write(sheetLine, 0, "Log Statistics", title_format)
         sheetLine += 1
@@ -638,6 +725,19 @@ class LogStats:
         sheet.write(sheetLine, 4, self.distance * METERS_TO_NM, header_value_format)
         sheet.write(sheetLine, 5, "NM", unit_format)
         sheetLine += 2
+        if self._smooth_filter:
+            sheet.write(sheetLine, 0, "distance_travelled_smoothed", header_format)
+            sheet.write(sheetLine, 1, self.distance_smoothed, header_value_format)
+            sheet.write(sheetLine, 2, "m", unit_format)
+            sheet.write(sheetLine, 3, "distance_travelled_smoothed_nm", header_format)
+            sheet.write(sheetLine, 4, self.distance_smoothed * METERS_TO_NM, header_value_format)
+            sheet.write(sheetLine, 5, "NM", unit_format)
+            sheetLine += 2
+
+        if self._smooth_filter:
+            sheet.write(sheetLine, 0, "smooth_window", name_format)
+            sheet.write(sheetLine, 1, self._sliding_window_size, value_format)
+            sheetLine += 2
 
         sheet.write(sheetLine, 0, "speed_calc_avg", header_format)
         sheet.write(sheetLine, 1, self.avgSpeedMpsCalc, header_value_format)
@@ -646,6 +746,14 @@ class LogStats:
         sheet.write(sheetLine, 4, self.avgSpeedMpsCalc * MPS_TO_KNOTS, header_value_format)
         sheet.write(sheetLine, 5, "kn", unit_format)
         sheetLine += 2
+        if self._smooth_filter:
+            sheet.write(sheetLine, 0, "speed_calc_smoothed_avg", header_format)
+            sheet.write(sheetLine, 1, self.avgSpeedSmoothedMpsCalc, header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "speed_calc_smoothed_avg_kn", header_format)
+            sheet.write(sheetLine, 4, self.avgSpeedSmoothedMpsCalc * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 2
 
         sheet.write(sheetLine, 0, "speed_min", header_format)
         sheet.write(sheetLine, 1, self.minSpeedMps, header_value_format)
@@ -675,6 +783,95 @@ class LogStats:
         sheet.write(sheetLine, 4, self.avgSpeedMps.std_dev() * MPS_TO_KNOTS, header_value_format)
         sheet.write(sheetLine, 5, "kn", unit_format)
         sheetLine += 2
+        if self._smooth_filter:
+            sheet.write(sheetLine, 0, "speed_smoothed_min", header_format)
+            sheet.write(sheetLine, 1, self.minSpeedSmoothedMps, header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "speed_smoothed_min_kn", header_format)
+            sheet.write(sheetLine, 4, self.minSpeedSmoothedMps * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "speed_smoothed_max", header_format)
+            sheet.write(sheetLine, 1, self.maxSpeedSmoothedMps, header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "speed_smoothed_max_kn", header_format)
+            sheet.write(sheetLine, 4, self.maxSpeedSmoothedMps * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "speed_smoothed_avg", header_format)
+            sheet.write(sheetLine, 1, self.avgSpeedSmoothedMps.mean(), header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "speed_smoothed_avg_kn", header_format)
+            sheet.write(sheetLine, 4, self.avgSpeedSmoothedMps.mean() * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "speed_smoothed_std_dev", header_format)
+            sheet.write(sheetLine, 1, self.avgSpeedSmoothedMps.std_dev(), header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "speed_smoothed_std_dev_kn", header_format)
+            sheet.write(sheetLine, 4, self.avgSpeedSmoothedMps.std_dev() * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 2
+
+        if not math.isnan(self.minVSpeedMps) and not math.isnan(self.maxVSpeedMps) \
+                    and self.minVSpeedMps == self.maxVSpeedMps and self.maxVSpeedMps > 0:
+            sheet.write(sheetLine, 0, "vertical_speed_min", header_format)
+            sheet.write(sheetLine, 1, self.minVSpeedMps, header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "vertical_speed_min_kn", header_format)
+            sheet.write(sheetLine, 4, self.minVSpeedMps * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "vertical_speed_max", header_format)
+            sheet.write(sheetLine, 1, self.maxVSpeedMps, header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "vertical_speed_max_kn", header_format)
+            sheet.write(sheetLine, 4, self.maxVSpeedMps * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "vertical_speed_avg", header_format)
+            sheet.write(sheetLine, 1, self.avgVSpeedMps.mean(), header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "vertical_speed__avg_kn", header_format)
+            sheet.write(sheetLine, 4, self.avgVSpeedSps.mean() * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 1
+            sheet.write(sheetLine, 0, "vertical_speed_std_dev", header_format)
+            sheet.write(sheetLine, 1, self.avgVSpeedMps.std_dev(), header_value_format)
+            sheet.write(sheetLine, 2, "m/s", unit_format)
+            sheet.write(sheetLine, 3, "vertical_speed_std_dev_kn", header_format)
+            sheet.write(sheetLine, 4, self.avgVSpeedMps.std_dev() * MPS_TO_KNOTS, header_value_format)
+            sheet.write(sheetLine, 5, "kn", unit_format)
+            sheetLine += 2
+            if self._smooth_filter:
+                sheet.write(sheetLine, 0, "vertical_speed_smoothed_min", header_format)
+                sheet.write(sheetLine, 1, self.minVSpeedSmoothedMps, header_value_format)
+                sheet.write(sheetLine, 2, "m/s", unit_format)
+                sheet.write(sheetLine, 3, "vertical_speed_smoothed_min_kn", header_format)
+                sheet.write(sheetLine, 4, self.minVSpeedSmoothedMps * MPS_TO_KNOTS, header_value_format)
+                sheet.write(sheetLine, 5, "kn", unit_format)
+                sheetLine += 1
+                sheet.write(sheetLine, 0, "vertical_speed_smoothed_max", header_format)
+                sheet.write(sheetLine, 1, self.maxVSpeedSmoothedMps, header_value_format)
+                sheet.write(sheetLine, 2, "m/s", unit_format)
+                sheet.write(sheetLine, 3, "vertical_speed_smoothed_max_kn", header_format)
+                sheet.write(sheetLine, 4, self.maxVSpeedSmoothedMps * MPS_TO_KNOTS, header_value_format)
+                sheet.write(sheetLine, 5, "kn", unit_format)
+                sheetLine += 1
+                sheet.write(sheetLine, 0, "vertical_speed_smoothed_avg", header_format)
+                sheet.write(sheetLine, 1, self.avgVSpeedSmoothedMps.mean(), header_value_format)
+                sheet.write(sheetLine, 2, "m/s", unit_format)
+                sheet.write(sheetLine, 3, "vertical_speed_smoothed_avg_kn", header_format)
+                sheet.write(sheetLine, 4, self.avgVSpeedSmoothedMps.mean() * MPS_TO_KNOTS, header_value_format)
+                sheet.write(sheetLine, 5, "kn", unit_format)
+                sheetLine += 1
+                sheet.write(sheetLine, 0, "vertical_speed_smoothed_std_dev", header_format)
+                sheet.write(sheetLine, 1, self.avgVSpeedSmoothedMps.std_dev(), header_value_format)
+                sheet.write(sheetLine, 2, "m/s", unit_format)
+                sheet.write(sheetLine, 3, "vertical_speed_smoothed_std_dev_kn", header_format)
+                sheet.write(sheetLine, 4, self.avgVSpeedSmoothedMps.std_dev() * MPS_TO_KNOTS, header_value_format)
+                sheet.write(sheetLine, 5, "kn", unit_format)
+                sheetLine += 2
 
         if not math.isnan(self.minLatRads) and not math.isnan(self.maxLatRads) \
                 and not math.isnan(self.minLonRads) and not math.isnan(self.maxLonRads):

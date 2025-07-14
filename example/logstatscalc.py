@@ -31,10 +31,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Process arguments for Concatenation Script")
 
     # Path to the mission argument
-    parser.add_argument('-p', '--mission_paths', nargs='+', type=str, default=os.getcwd(),
+    parser.add_argument('-p', '--mission-paths', nargs='+', type=str, default=os.getcwd(),
                         help="Specify path(s) to the actual logs. Preset is your current location. For better ordering run this script whem multiple path on a base common folder.")
    
-    parser.add_argument('-x', '--mission_paths_ignore', nargs='+', type=str,
+    parser.add_argument('-x', '--mission-paths-ignore', nargs='+', type=str,
                         help="Specify path(s) to the actual logs to ignore.")
    
     # Add argument for adding IMC id (integer)
@@ -59,6 +59,11 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', type=str, default='Statistics',
                         help="Output file name (omit extension). Preset is 'Statistics.xlsx'")
 
+    parser.add_argument('--smooth-filter', action='store_true', help="Apply a sliding window filter to speed and vertical speed calculations for smoothing.")
+
+    parser.add_argument('--smooth-filter-window', type=int, default=10,
+                        help="Sliding window size for smoothing. Preset is 10")
+
     # Parse the argument and save it 
     args = parser.parse_args()
 
@@ -67,6 +72,9 @@ if __name__ == '__main__':
         
     #force = args.force
     verbose = args.verbose
+
+    smooth_filter = args.smooth_filter
+    smooth_filter_window = args.smooth_filter_window
 
     voltage_entities = []
     temperature_entities = []
@@ -202,7 +210,8 @@ if __name__ == '__main__':
     processing_end_time = datetime.now()
     
 
-    globalStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis)
+    globalStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis,
+                           smooth_filter=smooth_filter, sliding_window_size=smooth_filter_window)
     globalStats.voltageEntities = voltage_entities
     globalStats.temperatureEntities = temperature_entities
 
@@ -225,7 +234,8 @@ if __name__ == '__main__':
                   .format(path))
 
             globalStats.entitiesMappings.clear()
-            logStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis)
+            logStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis,
+                                smooth_filter = smooth_filter, sliding_window_size = smooth_filter_window)
             logStats.systemName = globalStats.systemName
             logStats.voltageEntities = voltage_entities
             logStats.temperatureEntities = temperature_entities
