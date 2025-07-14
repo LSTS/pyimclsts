@@ -5,7 +5,7 @@ import math
 from datetime import datetime
 
 from example.netCDF.core import locationType
-from example.util.math import CircularMean, MeanStats, SlidingWindow, haversine
+from example.util.math import CircularMean, MeanStats, SlidingWindow, haversine, normalize_angle_mpi_pi
 from example.util.units import *
 
 import pyimc_generated as pg
@@ -15,12 +15,19 @@ class LogStats:
 
     def __init__(self, source_id: int = 0x0000, jump_time_millis: int = 10000, smooth_filter: bool = False, sliding_window_size: int = 10):
         self.BATTERIES_STR: Final[str] = 'Batteries'
+
+        self.DISPLACEMENT_Z_STR: Final[str] = 'Displacement Z'
         self.VOLTAGE_STR: Final[str] = 'Voltage'
+        self.CURRENT_STR: Final[str] = 'Current'
         self.TEMPERATURE_STR: Final[str] = 'Temperature'
+
+        self._var_list_names = [self.DISPLACEMENT_Z_STR, self.VOLTAGE_STR, self.CURRENT_STR, self.TEMPERATURE_STR]
 
         self.units_mappings: dict = {}
         self.units_mappings[self.VOLTAGE_STR] = 'V'
+        self.units_mappings[self.CURRENT_STR] = 'A'
         self.units_mappings[self.TEMPERATURE_STR] = '°C'
+        self.units_mappings[self.DISPLACEMENT_Z_STR] = 'm'
 
         self._jump_time_millis = jump_time_millis
 
@@ -66,6 +73,11 @@ class LogStats:
         self.amp_pitch_rads = float('NaN')
         self.avg_pitch_rads = CircularMean(degrees=False)
 
+        # calculate sideslip angle, min, max and avg from heading and speed
+        self.min_sideslip_rads = float('NaN')
+        self.max_sideslip_rads = float('NaN')
+        self.avg_sideslip_rads = CircularMean(degrees=False)
+
         self.num_states = 0
         self.number_of_logs = 0
 
@@ -104,7 +116,9 @@ class LogStats:
         self._variables_numeric_tmp = {}
 
         self.voltage_entities = []
+        self.current_entities = []
         self.temperature_entities = []
+        self.displacement_z_entities = []
 
         self.entities_mappings = {}
 
@@ -121,21 +135,18 @@ class LogStats:
         self.duration_minutes_part = float('NaN')
         self.duration_seconds_part = float('NaN')
 
+
     def _initialize_variable_list(self):
         if self.variables is None:
             self.variables = {}
         if self._variables_numeric_tmp is None:
             self._variables_numeric_tmp = {}
         
-        if self.variables.get(self.VOLTAGE_STR, None) is None:
-            self.variables[self.VOLTAGE_STR] = {}
-        if self._variables_numeric_tmp.get(self.VOLTAGE_STR, None) is None:
-            self._variables_numeric_tmp[self.VOLTAGE_STR] = {}
-        
-        if self.variables.get(self.TEMPERATURE_STR, None) is None:
-            self.variables[self.TEMPERATURE_STR] = {}
-        if self._variables_numeric_tmp.get(self.TEMPERATURE_STR, None) is None:
-            self._variables_numeric_tmp[self.TEMPERATURE_STR] = {}
+        for var_name in self._var_list_names:
+            if self.variables.get(var_name, None) is None:
+                self.variables[var_name] = {}
+            if self._variables_numeric_tmp.get(var_name, None) is None:
+                self._variables_numeric_tmp[var_name] = {}
 
 
     def new_log_name(self, new_log_name):
@@ -232,6 +243,13 @@ class LogStats:
         self.min_speed_smoothed_mps = min(self.min_speed_smoothed_mps, hspeed) if not math.isnan(self.min_speed_smoothed_mps) else hspeed_smoothed
         self.avg_speed_smoothed_mps.update(hspeed_smoothed)
         
+        # calculate sideslip angle, min, max and avg from heading and speed
+        sideslip_rads = math.atan2(msg.vy, msg.vx)
+        sideslip_rads -= msg.psi
+        sideslip_rads = normalize_angle_mpi_pi(sideslip_rads)
+        self.min_sideslip_rads = min(self.min_sideslip_rads, sideslip_rads) if not math.isnan(self.min_sideslip_rads) else sideslip_rads
+        self.max_sideslip_rads = max(self.max_sideslip_rads, sideslip_rads) if not math.isnan(self.max_sideslip_rads) else sideslip_rads
+        self.avg_sideslip_rads.update(sideslip_rads)
 
         self.cur_time_millis = msg._header.timestamp * 1000.0  # Convert to milliseconds
 
@@ -328,22 +346,23 @@ class LogStats:
         self.last_millis = self.cur_time_millis
         self.num_states += 1
 
-    def update_voltage(self, msg, callback=None):
-        if not isinstance(msg, pg.messages.Voltage):
+    # add lambda to extract value from message to the arguments of this function, defaul to msg.value
+    def _update_variable_value(self, msg, type_match, variable_entities, var_str: str, value_extractor=lambda msg: msg.value):
+        if not isinstance(msg, type_match):
             return
         if msg._header.src != self.source_id:
             return
-        if self.voltage_entities is None or len(self.voltage_entities) == 0:
+        if variable_entities is None or len(variable_entities) == 0:
             return
 
         self._initialize_variable_list()
-        voltage_dic = self.variables[self.VOLTAGE_STR]
-        voltage_tmp_dic = self._variables_numeric_tmp[self.VOLTAGE_STR]
+        variable_dic = self.variables[var_str]
+        variable_tmp_dic = self._variables_numeric_tmp[var_str]
 
         source_ent = msg._header.src_ent
         source_ent_name: Optional[str] = None
         
-        # search entitiesMappings by the name for source_ent (the discionary is name vs source_ent)
+        # search entitiesMappings by the name for source_ent (the dicionary is name vs source_ent)
         for name, entity_id in self.entities_mappings.items():
             if entity_id == source_ent:
                 source_ent_name = name
@@ -351,13 +370,13 @@ class LogStats:
 
         entry_elem = None
         if source_ent_name is not None and source_ent_name != '':
-            if source_ent_name not in voltage_dic:
-                voltage_dic[source_ent_name] = {}
-            entry_elem = voltage_dic[source_ent_name]
+            if source_ent_name not in variable_dic:
+                variable_dic[source_ent_name] = {}
+            entry_elem = variable_dic[source_ent_name]
         else:
-            if source_ent not in voltage_tmp_dic:
-                voltage_tmp_dic[source_ent] = {}
-            entry_elem = voltage_tmp_dic[source_ent]
+            if source_ent not in variable_tmp_dic:
+                variable_tmp_dic[source_ent] = {}
+            entry_elem = variable_tmp_dic[source_ent]
         if entry_elem is None:
             return
         if len(entry_elem) == 0:
@@ -365,55 +384,23 @@ class LogStats:
             entry_elem['min'] = float('NaN')
             entry_elem['max'] = float('NaN')
             entry_elem['avg'] = MeanStats()
-        
-        voltage = msg.value
-        entry_elem['min'] = min(entry_elem['min'], voltage) if not math.isnan(entry_elem['min']) else voltage
-        entry_elem['max'] = max(entry_elem['max'], voltage) if not math.isnan(entry_elem['max']) else voltage
-        entry_elem['avg'].update(voltage)
 
+        variable_value = value_extractor(msg) # msg.value
+        entry_elem['min'] = min(entry_elem['min'], variable_value) if not math.isnan(entry_elem['min']) else variable_value
+        entry_elem['max'] = max(entry_elem['max'], variable_value) if not math.isnan(entry_elem['max']) else variable_value
+        entry_elem['avg'].update(variable_value)
+
+    def update_voltage(self, msg, callback=None):
+        self._update_variable_value(msg, pg.messages.Voltage, self.voltage_entities, self.VOLTAGE_STR)
+
+    def update_current(self, msg, callback=None):
+        self._update_variable_value(msg, pg.messages.Current, self.current_entities, self.CURRENT_STR)
     
     def update_temperature(self, msg, callback=None):
-        if not isinstance(msg, pg.messages.Temperature):
-            return
-        if msg._header.src != self.source_id:
-            return
-        if self.temperature_entities is None or len(self.temperature_entities) == 0:
-            return
-        
-        self._initialize_variable_list()
-        temperature_dic = self.variables[self.TEMPERATURE_STR]
-        temperature_tmp_dic = self._variables_numeric_tmp[self.TEMPERATURE_STR]
+        self._update_variable_value(msg, pg.messages.Temperature, self.temperature_entities, self.TEMPERATURE_STR)
 
-        source_ent = msg._header.src_ent
-        source_ent_name: Optional[str] = None
-
-        for name, entity_id in self.entities_mappings.items():
-            if entity_id == source_ent:
-                source_ent_name = name
-                break
-
-        entry_elem = None
-        if source_ent_name is not None and source_ent_name != '':
-            if source_ent_name not in temperature_dic:
-                temperature_dic[source_ent_name] = {}
-            entry_elem = temperature_dic[source_ent_name]
-        else:
-            if source_ent not in temperature_tmp_dic:
-                temperature_tmp_dic[source_ent] = {}
-            entry_elem = temperature_tmp_dic[source_ent]
-        if entry_elem is None:
-            return
-        if len(entry_elem) == 0:
-            # initialize
-            entry_elem['min'] = float('NaN')
-            entry_elem['max'] = float('NaN')
-            entry_elem['avg'] = MeanStats()
-        
-        temperature = msg.value
-        entry_elem['min'] = min(entry_elem['min'], temperature) if not math.isnan(entry_elem['min']) else temperature
-        entry_elem['max'] = max(entry_elem['max'], temperature) if not math.isnan(entry_elem['max']) else temperature
-        entry_elem['avg'].update(temperature)
-        
+    def update_displacement_z(self, msg, callback=None):
+        self._update_variable_value(msg, pg.messages.Displacement, self.displacement_z_entities, self.DISPLACEMENT_Z_STR, lambda msg: msg.z)        
 
     def map_unnamed_variables_to_named(self):
         self._initialize_variable_list()
@@ -421,30 +408,44 @@ class LogStats:
         def _merge(list_entities, dic_entities_mappings, dic_variables, dic_variables_tmp):
             if list_entities is None or len(list_entities) == 0:
                 return
-            if dic_entities_mappings is not None and len(dic_entities_mappings) > 0:
-                for entity_name in list_entities:
-                    entity_id = dic_entities_mappings.get(entity_name, None)
-                    if entity_id is None:
-                        continue
-                    var_tmp = dic_variables_tmp.get(entity_id, None)
-                    if var_tmp is None:
-                        continue
-                    var = dic_variables.get(entity_name, None)
-                    if var is None:
-                        dic_variables[entity_name] = var_tmp
-                        dic_variables_tmp.pop(entity_id, None)
-                    else:
-                        var['min'] = min(var['min'], var_tmp['min']) if not math.isnan(var['min']) else var_tmp['min']
-                        var['max'] = max(var['max'], var_tmp['max']) if not math.isnan(var['max']) else var_tmp['max']
-                        var['avg'].merge_with(var_tmp['avg'])
             
+            def _update_map(entity_name, entity_id):
+                if entity_id is None:
+                    return
+                var_tmp = dic_variables_tmp.get(entity_id, None)
+                if var_tmp is None:
+                    return
+                var = dic_variables.get(entity_name, None)
+                if var is None:
+                    dic_variables[entity_name] = var_tmp
+                    dic_variables_tmp.pop(entity_id, None)
+                else:
+                    var['min'] = min(var['min'], var_tmp['min']) if not math.isnan(var['min']) else var_tmp['min']
+                    var['max'] = max(var['max'], var_tmp['max']) if not math.isnan(var['max']) else var_tmp['max']
+                    var['avg'].merge_with(var_tmp['avg'])
+                    
+            if dic_entities_mappings is not None and len(dic_entities_mappings) > 0:
+                if len(list_entities) == 1 and list_entities[0] == '*':
+                    # Accept all entities
+                    for entity_name, entity_id in dic_entities_mappings.items():
+                        _update_map(entity_name, entity_id)
+                else:
+                    for entity_name in list_entities:
+                        entity_id = dic_entities_mappings.get(entity_name, None)
+                        _update_map(entity_name, entity_id)
 
         # Voltage
         _merge(self.voltage_entities, self.entities_mappings,
                self.variables[self.VOLTAGE_STR], self._variables_numeric_tmp[self.VOLTAGE_STR])
+        # Current
+        _merge(self.current_entities, self.entities_mappings,
+               self.variables[self.CURRENT_STR], self._variables_numeric_tmp[self.CURRENT_STR])
         # Temperature
         _merge(self.temperature_entities, self.entities_mappings,
                self.variables[self.TEMPERATURE_STR], self._variables_numeric_tmp[self.TEMPERATURE_STR])
+        # Displacement Z
+        _merge(self.displacement_z_entities, self.entities_mappings,
+               self.variables[self.DISPLACEMENT_Z_STR], self._variables_numeric_tmp[self.DISPLACEMENT_Z_STR])
         
         self._variables_numeric_tmp.clear()
         # self._initialize_variable_list()
@@ -480,6 +481,9 @@ class LogStats:
         if not math.isnan(self.max_pitch_rads) and not math.isnan(self.min_pitch_rads):
             self.amp_pitch_rads = self.max_pitch_rads - self.min_pitch_rads
 
+        if not math.isnan(self.max_sideslip_rads) and not math.isnan(self.min_sideslip_rads):
+            self.amp_sideslip_rads = self.max_sideslip_rads - self.min_sideslip_rads
+
         #if (self.endMillis - self.startMillis) > 0:
         #    self.avgSpeedMpsCalc = self.distance / ((self.endMillis - self.startMillis) / 1000.0)
         if (self.duration_traveled_millis) > 0:
@@ -488,7 +492,13 @@ class LogStats:
         else:
             self.avg_speed_mps_calc = 0
             self.avg_speed_smoothed_mps_calc = 0
-    
+        
+        # order in ascending order the self.variables acording to the key
+        # self.variables = dict(sorted(self.variables.items()))
+        # sort the values acording to thir keys
+        for key, value in self.variables.items():
+            value = dict(sorted(value.items()))
+
 
     def __str__(self):
         """String representation of the statistics."""
@@ -584,6 +594,12 @@ class LogStats:
                     math.degrees(self.amp_pitch_rads), math.degrees(self.avg_pitch_rads.mean()), 
                     math.degrees(self.avg_pitch_rads.std_dev())))
 
+            if not math.isnan(self.max_sideslip_rads):
+                output.append("{}: Min: {:.2f}° | Max: {:.2f}° | Amp: {:.2f}° | Avg: {:.2f}° | Std Dev: {:.2f}°".format(
+                    "Sideslip".ljust(justify), math.degrees(self.min_sideslip_rads), math.degrees(self.max_sideslip_rads), 
+                    math.degrees(self.amp_sideslip_rads), math.degrees(self.avg_sideslip_rads.mean()), 
+                    math.degrees(self.avg_sideslip_rads.std_dev())))
+                
             # output.append("{}: {:.3f} s".format("Average Time Between States".ljust(justify), (self.endMillis - self.startMillis) / self.numStates / 1000))
             output.append("{}: {:.3f} s".format("Average Time Between States".ljust(justify), self.duration_traveled_millis / self.num_states / 1000))
             output.append("{}: {}".format("Number of States".ljust(justify), self.num_states))
@@ -1004,6 +1020,28 @@ class LogStats:
             sheet.write(sheet_line, 2, "°", unit_format)
             sheet_line += 2
         
+        if not math.isnan(self.max_sideslip_rads):
+            sheet.write(sheet_line, 0, "attitude_sideslip_min", name_format)
+            sheet.write(sheet_line, 1, math.degrees(self.min_sideslip_rads), value_format)
+            sheet.write(sheet_line, 2, "°", unit_format)
+            sheet_line += 1
+            sheet.write(sheet_line, 0, "attitude_sideslip_max", name_format)
+            sheet.write(sheet_line, 1, math.degrees(self.max_sideslip_rads), value_format)
+            sheet.write(sheet_line, 2, "°", unit_format)
+            sheet_line += 1
+            sheet.write(sheet_line, 0, "attitude_sideslip_amp", name_format)
+            sheet.write(sheet_line, 1, math.degrees(self.max_sideslip_rads - self.min_sideslip_rads), value_format)
+            sheet.write(sheet_line, 2, "°", unit_format)
+            sheet_line += 1
+            sheet.write(sheet_line, 0, "attitude_sideslip_avg", name_format)
+            sheet.write(sheet_line, 1, math.degrees(self.avg_sideslip_rads.mean()), value_format)
+            sheet.write(sheet_line, 2, "°", unit_format)
+            sheet_line += 1
+            sheet.write(sheet_line, 0, "attitude_sideslip_std_dev", name_format)
+            sheet.write(sheet_line, 1, math.degrees(self.avg_sideslip_rads.std_dev()), value_format)
+            sheet.write(sheet_line, 2, "°", unit_format)
+            sheet_line += 2
+    
         sheet.write(sheet_line, 0, "time_between_states_avg", name_format)
         # sheet.write(sheetLine, 1, (self.endMillis - self.startMillis) / self.numStates / 1000, value_format)
         sheet.write(sheet_line, 1, self.duration_traveled_millis / self.num_states / 1000, value_format)

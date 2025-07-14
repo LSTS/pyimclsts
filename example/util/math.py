@@ -29,6 +29,28 @@ def bearing(lat1, lon1, lat2, lon2, degrees=False):
     return bearing if not degrees else bearing_deg
 
 
+def normalize_angle_0_2pi(angle: float) -> float:
+    """
+    Normalize an angle in radians to the range [0, 2*pi).
+
+    :param angle: The angle in radians.
+    :return: The normalized angle in the range [0, 2*pi).
+    """
+    return angle % (2 * math.pi)
+
+
+def normalize_angle_mpi_pi(angle: float) -> float:
+    """
+    Normalize an angle in radians to the range (-pi, pi].
+
+    This is often used for calculating the shortest angle difference.
+
+    :param angle: The angle in radians.
+    :return: The normalized angle in the range (-pi, pi].
+    """
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
 class CircularMean:
     def __init__(self, degrees=False):
         """

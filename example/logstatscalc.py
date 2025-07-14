@@ -38,17 +38,26 @@ if __name__ == '__main__':
                         help="Specify path(s) to the actual logs to ignore.")
    
     # Add argument for adding IMC id (integer)
-    parser.add_argument('-i', '--imc_id', type=str, help="Specify the IMC id to be used, decimal or hexadecimal (0x...)")
+    parser.add_argument('-i', '--imc_id', type=str,
+                        help="Specify the IMC id to be used, decimal or hexadecimal (0x...)")
 
     ## Add a boolean flag to force th deletion of data files
     #parser.add_argument('--force', action='store_true', help="Call argument if you want to generate new data files, even if they exist")
 
     parser.add_argument('--batteries', action='store_true', help="Call argument if you want to generate battery stats")
 
-    parser.add_argument('--voltage-entities', nargs='+', type=str, help="Specify the entities for which to generate voltage statistics. Use entity names or IDs from IMC. Example: '72' or 'Batteries'")
+    parser.add_argument('--voltage-entities', nargs='+', type=str,
+                        help="Specify the entities for which to generate voltage statistics. Use entity names or IDs from IMC. Example: 'Batteries'. Use 'all' for all entities")
     
-    parser.add_argument('--temperature-entities', nargs='+', type=str, help="Specify the entities for which to generate temperature statistics. Use entity names or IDs from IMC. Example: '97' or 'Thermal Zone'")
+    parser.add_argument('--temperature-entities', nargs='+', type=str,
+                        help="Specify the entities for which to generate temperature statistics. Use entity names or IDs from IMC. Example: 'Thermal Zone'. Use 'all' for all entities")
 
+    parser.add_argument('--current-entities', nargs='+', type=str,
+                        help="Specify the entities for which to generate current statistics. Use entity names or IDs from IMC. Example: 'Batteries'. Use 'all' for all entities")
+
+    parser.add_argument('--displacement-z-entities', nargs='+', type=str,
+                        help="Specify the entities for which to generate displacement Z statistics. Use entity names or IDs from IMC. Example: 'Displacement'. Use 'all' for all entities")
+    
     # Minimum time argument
     parser.add_argument('--jump_time', type=int, default=10,
                         help="Minimum time jump to reset distance calculation. Preset is 10 sec")
@@ -77,15 +86,38 @@ if __name__ == '__main__':
     smooth_filter_window = args.smooth_filter_window
 
     voltage_entities = []
+    current_entities = []
     temperature_entities = []
+    displacement_z_entities = []
     if args.batteries:
         voltage_entities += ['Batteries']
+        current_entities += ['Batteries']
     if args.voltage_entities is not None:
         voltage_entities += args.voltage_entities
+        if len(args.voltage_entities) == 1 and (args.voltage_entities[0] == '*' or args.voltage_entities[0].tolower() == 'all'):
+            voltage_entities = ['*']
+    if args.current_entities is not None:
+        current_entities += args.current_entities
+        if len(args.current_entities) == 1 and (args.current_entities[0] == '*' or args.current_entities[0].tolower() == 'all'):
+            current_entities = ['*']
     if args.temperature_entities is not None:
         temperature_entities += args.temperature_entities
+        if len(args.temperature_entities) == 1 and (args.temperature_entities[0] == '*' or args.temperature_entities[0].tolower() == 'all'):
+            temperature_entities = ['*']
+    if args.displacement_z_entities is not None:
+        displacement_z_entities += args.displacement_z_entities
+        if len(args.displacement_z_entities) == 1 and (args.displacement_z_entities[0] == '*' or args.displacement_z_entities[0].lower() == 'all'):
+            displacement_z_entities = ['*']
     voltage_entities.sort()
+    current_entities.sort()
     temperature_entities.sort()
+    displacement_z_entities.sort()
+
+    print("Voltage entities: {}", voltage_entities)
+    print("Current entities: {}", current_entities)
+    print("Temperature entities: {}", temperature_entities)
+    print("Displacement Z entities: {}".format(displacement_z_entities))
+    
 
     jump_time_millis = args.jump_time * 1000
     
@@ -213,7 +245,9 @@ if __name__ == '__main__':
     globalStats = LogStats(source_id = source_id, jump_time_millis = jump_time_millis,
                            smooth_filter=smooth_filter, sliding_window_size=smooth_filter_window)
     globalStats.voltage_entities = voltage_entities
+    globalStats.current_entities = current_entities
     globalStats.temperature_entities = temperature_entities
+    globalStats.displacement_z_entities = displacement_z_entities
 
     #script_dir = os.path.dirname(os.path.abspath(__file__))
     #src_global_xlsx_file = script_dir + '/' + output_name + '.xlsx'
@@ -238,7 +272,9 @@ if __name__ == '__main__':
                                 smooth_filter = smooth_filter, sliding_window_size = smooth_filter_window)
             logStats.system_name = globalStats.system_name
             logStats.voltage_entities = voltage_entities
+            logStats.current_entities = current_entities
             logStats.temperature_entities = temperature_entities
+            logStats.displacement_z_entities = displacement_z_entities
 
             if not os.path.isdir(path + '/mra'):
                 os.makedirs(path + '/mra')
@@ -273,9 +309,17 @@ if __name__ == '__main__':
                 sub.subscribe_async(globalStats.update_voltage, msg_id = pg.messages.Voltage)
                 sub.subscribe_async(logStats.update_voltage, msg_id = pg.messages.Voltage)
 
+                # Current
+                sub.subscribe_async(globalStats.update_current, msg_id = pg.messages.Current)
+                sub.subscribe_async(logStats.update_current, msg_id = pg.messages.Current)
+
                 # Temperature
                 sub.subscribe_async(globalStats.update_temperature, msg_id = pg.messages.Temperature)
                 sub.subscribe_async(logStats.update_temperature, msg_id = pg.messages.Temperature)
+                
+                # Displacement Z
+                sub.subscribe_async(globalStats.update_displacement_z, msg_id = pg.messages.Displacement)
+                sub.subscribe_async(logStats.update_displacement_z, msg_id = pg.messages.Displacement)
 
                 # Run the event loop (This is asyncio witchcraft)
                 sub.run()                
