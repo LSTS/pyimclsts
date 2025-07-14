@@ -94,15 +94,15 @@ if __name__ == '__main__':
         current_entities += ['Batteries']
     if args.voltage_entities is not None:
         voltage_entities += args.voltage_entities
-        if len(args.voltage_entities) == 1 and (args.voltage_entities[0] == '*' or args.voltage_entities[0].tolower() == 'all'):
+        if len(args.voltage_entities) == 1 and (args.voltage_entities[0] == '*' or args.voltage_entities[0].lower() == 'all'):
             voltage_entities = ['*']
     if args.current_entities is not None:
         current_entities += args.current_entities
-        if len(args.current_entities) == 1 and (args.current_entities[0] == '*' or args.current_entities[0].tolower() == 'all'):
+        if len(args.current_entities) == 1 and (args.current_entities[0] == '*' or args.current_entities[0].lower() == 'all'):
             current_entities = ['*']
     if args.temperature_entities is not None:
         temperature_entities += args.temperature_entities
-        if len(args.temperature_entities) == 1 and (args.temperature_entities[0] == '*' or args.temperature_entities[0].tolower() == 'all'):
+        if len(args.temperature_entities) == 1 and (args.temperature_entities[0] == '*' or args.temperature_entities[0].lower() == 'all'):
             temperature_entities = ['*']
     if args.displacement_z_entities is not None:
         displacement_z_entities += args.displacement_z_entities
