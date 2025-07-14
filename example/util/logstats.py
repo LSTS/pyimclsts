@@ -735,18 +735,18 @@ class LogStats:
         sheet.write(sheet_line, 2, "seconds", unit_format)
         sheet_line += 2
 
-        sheet.write(sheet_line, 0, "distance_travelled", header_format)
+        sheet.write(sheet_line, 0, "distance_traveled", header_format)
         sheet.write(sheet_line, 1, self.distance, header_value_format)
         sheet.write(sheet_line, 2, "m", unit_format)
-        sheet.write(sheet_line, 3, "distance_travelled_nm", header_format)
+        sheet.write(sheet_line, 3, "distance_traveled_nm", header_format)
         sheet.write(sheet_line, 4, self.distance * METERS_TO_NM, header_value_format)
         sheet.write(sheet_line, 5, "NM", unit_format)
         sheet_line += 2
         if self._smooth_filter:
-            sheet.write(sheet_line, 0, "distance_travelled_smoothed", header_format)
+            sheet.write(sheet_line, 0, "distance_traveled_smoothed", header_format)
             sheet.write(sheet_line, 1, self.distance_smoothed, header_value_format)
             sheet.write(sheet_line, 2, "m", unit_format)
-            sheet.write(sheet_line, 3, "distance_travelled_smoothed_nm", header_format)
+            sheet.write(sheet_line, 3, "distance_traveled_smoothed_nm", header_format)
             sheet.write(sheet_line, 4, self.distance_smoothed * METERS_TO_NM, header_value_format)
             sheet.write(sheet_line, 5, "NM", unit_format)
             sheet_line += 2
