@@ -10,6 +10,7 @@ import numpy as np
 import json
 import sys
 import copy
+import pyimc_generated as pg
 
 
 class locationType():
@@ -144,6 +145,9 @@ class logDataGatherer():
         self.thurster_actuation = []
         self.set_servo_position = []
         self.servo_position = []
+        self.do2 = []
+        self.cdom = []
+        self.time = []
 
         self.name = 'NoName'
         self.cols = []
@@ -327,6 +331,10 @@ class logDataGatherer():
     def update_conductivity(self, msg, callback):
 
         time = msg._header.timestamp
+
+        time_list = [time]
+        self.time.append(time_list)
+
         src_ent = msg._header.src_ent
         conductivity  = [time, src_ent, msg.value]
         self.conductivity.append(conductivity)
@@ -376,6 +384,21 @@ class logDataGatherer():
         which_servo = msg.id
         servo_position = [time, which_servo, msg.value]
         self.servo_position.append(servo_position)
+
+    def update_do2(self, msg, callback):
+
+        time = msg._header.timestamp
+        do2 = [time, msg.value]
+        self.do2.append(do2)
+        
+    def update_cdom(self, msg, callback):
+
+        time = msg._header.timestamp
+
+        if msg.type == pg.messages.DissolvedOrganicMatter.TYPE.COLORED:
+            cdom = [time, msg.value]
+            self.cdom.append(cdom)
+        
 
     # Use to compute Density from CTD values
     def computeDensity(self):
@@ -508,31 +531,68 @@ class logDataGatherer():
         else:
             self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA'])
             self.df_positions = self.df_positions.sort_values(by='TIME')
+            self.df_positions['TIME'] = pd.to_datetime(self.df_positions['TIME'], unit='s')
 
         if not self.medium:
             raise Exception("Log has no VEHICLE MEDIUM")
 
         self.df_vehicle_medium = pd.DataFrame(self.medium, columns=['TIME', 'MEDIUM'])
         self.df_vehicle_medium = self.df_vehicle_medium.sort_values(by='TIME')
+        self.df_vehicle_medium['TIME'] = pd.to_datetime(self.df_vehicle_medium['TIME'], unit='s')
+
  
         self.df_temperatures = pd.DataFrame(self.temperature, columns=['TIME','SRC_ENT', 'TEMP'])
         self.df_temperatures = self.df_temperatures.sort_values(by='TIME')
+        self.df_temperatures['TIME'] = pd.to_datetime(self.df_temperatures['TIME'], unit='s')
+
 
         self.df_conductivity = pd.DataFrame(self.conductivity, columns=['TIME','SRC_ENT', 'CNDC'])
         self.df_conductivity = self.df_conductivity.sort_values(by='TIME')
+        self.df_conductivity['TIME'] = pd.to_datetime(self.df_conductivity['TIME'], unit='s')
+
 
         self.df_sound_speed = pd.DataFrame(self.sound_speed, columns=['TIME', 'SVEL'])
         self.df_sound_speed = self.df_sound_speed.sort_values(by='TIME')
+        self.df_sound_speed['TIME'] = pd.to_datetime(self.df_sound_speed['TIME'], unit='s')
+
 
         self.df_salinity = pd.DataFrame(self.salinity, columns=['TIME', 'PSAL'])
         self.df_salinity = self.df_salinity.sort_values(by='TIME')
+        self.df_salinity['TIME'] = pd.to_datetime(self.df_salinity['TIME'], unit='s')
         
         if self.name == 'lauv-xplore-2': 
             self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
             self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
+            self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
+
 
             self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
             self.df_chloro = self.df_chloro.sort_values(by='TIME')
+            self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
+
+
+        if self.name == 'caravel':
+         
+            self.df_cdom = pd.DataFrame(self.cdom, columns=['TIME', 'CDOM'])
+            self.df_cdom = self.df_cdom.sort_values('TIME')
+            self.df_cdom['TIME'] = pd.to_datetime(self.df_cdom['TIME'], unit='s')
+
+
+            self.df_do2 = pd.DataFrame(self.do2, columns=['TIME', 'DO2'])
+            self.df_do2 = self.df_do2.sort_values('TIME')
+            self.df_do2['TIME'] = pd.to_datetime(self.df_do2['TIME'], unit='s')
+
+
+            self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
+            self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
+            self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
+
+
+            self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
+            self.df_chloro = self.df_chloro.sort_values(by='TIME')
+            self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
+
+
 
     # Merge all data into a single dataframe for later filtering
     def merge_data(self):
@@ -610,12 +670,170 @@ class logDataGatherer():
             self.df_all_data =  pd.merge_asof(self.df_all_data, self.df_vehicle_medium, on='TIME',
                                               direction='nearest', suffixes=('_df1','_df2'))
         
+        print("About to merge")
         # Rearrange positions dataframe for better visibility
         self.df_all_data = self.df_all_data[self.cols]
 
         # Turn the normal dataframe into geopandas dataframe for easier filtering 
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
+        
+
+    # Merge all data into a single dataframe for later filtering
+    def merge_data_caravel(self):
+
+        # These columns are mandatory since this initial information is absolutely required to localize our data
+        self.cols = ['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG']
+        # Create an empty dataframe so it is not empty
+        self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
+        self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
+
+        # Do a sanity check and look for the sensor gathering oceanographic data
+        # Also merge data by lowest frequency data which seems to always be the sound speed variable
+        if self.df_sound_speed.isnull().all().all():
+            print("NO SOUND SPEED FOUND")
+        
+        else: 
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_sound_speed,  on='TIME', 
+                                            direction='nearest', suffixes=('_df1', '_df2'))
+            self.cols.append('SVEL')
+            
+        if self.df_conductivity.isnull().all().all():
+            print("NO CONDUCTIVITY FOUND")
+
+        else:
+
+            # Save the correct entity to later filter temperature values
+            self.sensor_ent = self.df_conductivity.loc[1, 'SRC_ENT']
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_conductivity, on='TIME', 
+                                            direction='nearest', suffixes=('_df1', '_df2'))
+            self.cols.append('CNDC')
+            
+        if self.sensor_ent != -1:
+
+            if self.df_temperatures.isnull().all().all():
+
+                print("NO TEMPERATURE FOUND")
+
+            else:
+
+                self.df_temperatures = self.df_temperatures[self.df_temperatures['SRC_ENT'] == self.sensor_ent]
+                self.df_temperatures = self.df_temperatures.drop('SRC_ENT', axis=1)
+                self.df_all_data = self.df_all_data.drop('SRC_ENT', axis=1)
+
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_temperatures, on='TIME', 
+                                                direction='nearest', suffixes=('_df1', '_df2') )
+                
+                self.cols.append('TEMP')
+        
+        else:
+            print("NO USABLE ENTITY FOR TEMPERATURE FOUND")
+
+
+        if self.df_salinity.isnull().all().all():
+            print("NO SALINITY FOUND")
+        
+        else:
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_salinity, on='TIME',
+                                            direction='nearest', suffixes=('_df1', '_df2'))
+            self.cols.append('PSAL')
+            
+        if self.df_positions.isnull().all().all():
+            print("NO POSITIONS FOUND")
+
+        else:
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_positions, on='TIME',
+                                             direction='nearest', suffixes=('_df1', '_df2'))
+        
+        if self.df_vehicle_medium.isnull().all().all():
+            print("NO VEHICLE MEDIUM FOUND")
+        
+        else: 
+            self.df_all_data =  pd.merge_asof(self.df_all_data, self.df_vehicle_medium, on='TIME',
+                                              direction='nearest', suffixes=('_df1','_df2'))
+            self.cols.append('MEDIUM')
+
+        if self.name == 'lauv-xplore-2':
+        
+            if self.df_chloro.isnull().all().all():
+                print("NO CHLOROPHYLL FOUND")
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_chloro, on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'))
+                self.cols.append('CPWC')
+                
+            
+            if self.df_turbidity.isnull().all().all():
+                print("NO TURBIDITY FOUND")
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_turbidity, on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'))
+                self.cols.append('TSED')
+
+        if self.name == 'caravel':
+            
+            self.cols.append('TSED')
+            self.cols.append('CPWC')
+            self.cols.append('CDOM')  
+            self.cols.append('DO2')
+
+            # We will apply a time threshold for the merging of anything outside CTD sensors (which are our reference)
+            time_threshold = pd.Timedelta(seconds= (0.125/2) )
+
+            if self.df_chloro.isnull().all().all():
+
+                print("NO CHLOROPHYLL FOUND")
+                self.df_all_data['CPWC'] = np.nan
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_chloro, self.df_all_data,  on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)
+                
+            
+            if self.df_turbidity.isnull().all().all():
+                print("NO TURBIDITY FOUND")
+                self.df_all_data['TSED'] = np.nan
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_turbidity, self.df_all_data,  on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'), 
+                                                tolerance=time_threshold)
+                
+            if self.df_cdom.isnull().all().all():
+
+                print("NO DISSOLVED ORGANIC MATTER FOUND. Filled with NULL")
+                self.df_all_data['CDOM'] = np.nan
+
+            else: 
+
+                self.df_all_data = pd.merge_asof(self.df_cdom, self.df_all_data,  on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)
+
+            if self.df_do2.isnull().all().all():
+                
+                print("NO DISSOLVED OXYGEN FOUND. Filled with NULL")
+                self.df_all_data['DO2'] = np.nan
+
+            else:
+
+                self.df_all_data = pd.merge_asof(self.df_do2, self.df_all_data,  on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)
+
+        print("About to merge")
+        # Rearrange positions dataframe for better visibility
+        self.df_all_data = self.df_all_data[self.cols]
+
+        # Turn the normal dataframe into geopandas dataframe for easier filtering 
+        self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
+                                                geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
+        
+        print("Merged")
         
     def filter_data(self, polygon = False, duration_limit=-1, filter_underwater=False):
 

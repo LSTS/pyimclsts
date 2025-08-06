@@ -128,33 +128,43 @@ if __name__ == '__main__':
 
             # Subscribe to specific variables and provide sub with a callback function
             sub.subscribe_async(logData.update_state, msg_id =pg.messages.EstimatedState)
-            sub.subscribe_async(logData.update_temperature, msg_id =pg.messages.Temperature)
             sub.subscribe_async(logData.update_sound_speed, msg_id=pg.messages.SoundSpeed)
             sub.subscribe_async(logData.update_conductivity, msg_id=pg.messages.Conductivity)
+            sub.subscribe_async(logData.update_vehicle_medium, msg_id=pg.messages.VehicleMedium)
+            sub.subscribe_async(logData.update_temperature, msg_id =pg.messages.Temperature)
             sub.subscribe_async(logData.update_salinity, msg_id=pg.messages.Salinity)
             sub.subscribe_async(logData.update_turbidity, msg_id=pg.messages.Turbidity)
             sub.subscribe_async(logData.update_chloro, msg_id=pg.messages.Chlorophyll)
-            sub.subscribe_async(logData.update_vehicle_medium, msg_id=pg.messages.VehicleMedium)
+            sub.subscribe_async(logData.update_do2, msg_id=pg.messages.DissolvedOxygen)            
+            sub.subscribe_async(logData.update_cdom, msg_id=pg.messages.DissolvedOrganicMatter)
 
             # Run the even loop (This is asyncio witchcraft)
             sub.run()
 
             # Go through the Entity info and check for the vehicle name
             key_with_entity_list = next((key for key, value in sub._peers.items() if 'EntityList' in value), None)
-            key_with_entity_list = str(key_with_entity_list)
-            if 'lauv' in key_with_entity_list:
-                print("Log is coming from vehicle {}".format(key_with_entity_list))
-                logData.name = key_with_entity_list
-        
-            if not 'lauv' in logData.name:
-                raise Exception("No Vehile found in EntityList")
 
+            print("Log is coming from vehicle {}".format(key_with_entity_list))
+            
+            # Corrent names
+            if 'lauv' or 'autonaut' or 'caravel' or '2052' in key_with_entity_list:
+
+                logData.name = str(key_with_entity_list)
+                # Once found the correct vehicle we will load up the Entity List dictionary
+                entity_list = sub._peers[key_with_entity_list]
+
+            if 'lauv' in logData.name or 'autonaut' in logData.name or 'caravel' in logData.name or '2052' in logData.name:
+                print("Valid vehicle found in EntityList")
+
+            else: 
+                raise Exception("No Vehile found in EntityList")
+            
             # Gather the remaining positions and place the remaining data in a readable formar
             logData.finish_positions()
             # Create dataframes based on data collected from file
             logData.create_dataframes()
             # Merge that data into a single dataframe
-            logData.merge_data()
+            logData.merge_data_caravel()
             # Parse that data
             logData.filter_data(delimiter_polygon, min_time, filter_underwater)
             # Actually write to a csv file
