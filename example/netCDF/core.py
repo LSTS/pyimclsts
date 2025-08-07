@@ -263,6 +263,7 @@ class logDataGatherer():
         self.lastTime = msg._header.timestamp 
         self.lastLoc = copy.deepcopy(self.currentLoc)
 
+
     def finish_positions(self):
         
         # The last values of the log will probably not need corretion (Assuming it finishes in the surface)
@@ -539,36 +540,37 @@ class logDataGatherer():
         self.df_vehicle_medium = pd.DataFrame(self.medium, columns=['TIME', 'MEDIUM'])
         self.df_vehicle_medium = self.df_vehicle_medium.sort_values(by='TIME')
         self.df_vehicle_medium['TIME'] = pd.to_datetime(self.df_vehicle_medium['TIME'], unit='s')
-
+        self.df_vehicle_medium = self.df_vehicle_medium.groupby('TIME', as_index=False).mean(numeric_only=True)
  
         self.df_temperatures = pd.DataFrame(self.temperature, columns=['TIME','SRC_ENT', 'TEMP'])
         self.df_temperatures = self.df_temperatures.sort_values(by='TIME')
         self.df_temperatures['TIME'] = pd.to_datetime(self.df_temperatures['TIME'], unit='s')
 
-
         self.df_conductivity = pd.DataFrame(self.conductivity, columns=['TIME','SRC_ENT', 'CNDC'])
         self.df_conductivity = self.df_conductivity.sort_values(by='TIME')
         self.df_conductivity['TIME'] = pd.to_datetime(self.df_conductivity['TIME'], unit='s')
-
+        self.df_conductivity = self.df_conductivity.groupby('TIME', as_index=False).mean(numeric_only=True)
 
         self.df_sound_speed = pd.DataFrame(self.sound_speed, columns=['TIME', 'SVEL'])
         self.df_sound_speed = self.df_sound_speed.sort_values(by='TIME')
         self.df_sound_speed['TIME'] = pd.to_datetime(self.df_sound_speed['TIME'], unit='s')
-
+        self.df_sound_speed = self.df_sound_speed.groupby('TIME', as_index=False).mean(numeric_only=True)
 
         self.df_salinity = pd.DataFrame(self.salinity, columns=['TIME', 'PSAL'])
         self.df_salinity = self.df_salinity.sort_values(by='TIME')
         self.df_salinity['TIME'] = pd.to_datetime(self.df_salinity['TIME'], unit='s')
+        self.df_salinity = self.df_salinity.groupby('TIME', as_index=False).mean(numeric_only=True)
         
         if self.name == 'lauv-xplore-2': 
             self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
             self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
             self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
-
+            self.df_turbidity = self.df_turbidity.groupby('TIME', as_index=False).mean(numeric_only=True)
 
             self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
             self.df_chloro = self.df_chloro.sort_values(by='TIME')
             self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
+            self.df_chloro = self.df_chloro.groupby('TIME', as_index=False).mean(numeric_only=True)
 
 
         if self.name == 'caravel':
@@ -576,21 +578,28 @@ class logDataGatherer():
             self.df_cdom = pd.DataFrame(self.cdom, columns=['TIME', 'CDOM'])
             self.df_cdom = self.df_cdom.sort_values('TIME')
             self.df_cdom['TIME'] = pd.to_datetime(self.df_cdom['TIME'], unit='s')
-
+            self.df_cdom = self.df_cdom.groupby('TIME', as_index=False).mean(numeric_only=True)
 
             self.df_do2 = pd.DataFrame(self.do2, columns=['TIME', 'DO2'])
             self.df_do2 = self.df_do2.sort_values('TIME')
             self.df_do2['TIME'] = pd.to_datetime(self.df_do2['TIME'], unit='s')
-
+            self.df_do2 = self.df_do2.groupby('TIME', as_index=False).mean(numeric_only=True)
 
             self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
             self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
             self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
-
+            self.df_turbidity = self.df_turbidity.groupby('TIME', as_index=False).mean(numeric_only=True)
 
             self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
             self.df_chloro = self.df_chloro.sort_values(by='TIME')
             self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
+            self.df_chloro = self.df_chloro.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+            # Create an empty dataframe so it is not empty
+            self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
+            self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
+            self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
+
 
 
 
@@ -684,9 +693,7 @@ class logDataGatherer():
 
         # These columns are mandatory since this initial information is absolutely required to localize our data
         self.cols = ['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG']
-        # Create an empty dataframe so it is not empty
-        self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
-        self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
+
 
         # Do a sanity check and look for the sensor gathering oceanographic data
         # Also merge data by lowest frequency data which seems to always be the sound speed variable
@@ -706,7 +713,7 @@ class logDataGatherer():
 
             # Save the correct entity to later filter temperature values
             self.sensor_ent = self.df_conductivity.loc[1, 'SRC_ENT']
-            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_conductivity, on='TIME', 
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_conductivity,  on='TIME', 
                                             direction='nearest', suffixes=('_df1', '_df2'))
             self.cols.append('CNDC')
             
@@ -720,7 +727,7 @@ class logDataGatherer():
 
                 self.df_temperatures = self.df_temperatures[self.df_temperatures['SRC_ENT'] == self.sensor_ent]
                 self.df_temperatures = self.df_temperatures.drop('SRC_ENT', axis=1)
-                self.df_all_data = self.df_all_data.drop('SRC_ENT', axis=1)
+                self.df_temperatures = self.df_temperatures.groupby('TIME', as_index=False).mean(numeric_only=True)
 
                 self.df_all_data = pd.merge_asof(self.df_all_data, self.df_temperatures, on='TIME', 
                                                 direction='nearest', suffixes=('_df1', '_df2') )
@@ -781,7 +788,7 @@ class logDataGatherer():
             self.cols.append('DO2')
 
             # We will apply a time threshold for the merging of anything outside CTD sensors (which are our reference)
-            time_threshold = pd.Timedelta(seconds= (0.125/2) )
+            time_threshold = pd.Timedelta(seconds=0.5)
 
             if self.df_chloro.isnull().all().all():
 
@@ -789,7 +796,7 @@ class logDataGatherer():
                 self.df_all_data['CPWC'] = np.nan
 
             else:
-                self.df_all_data = pd.merge_asof(self.df_chloro, self.df_all_data,  on='TIME',
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_chloro,  on='TIME',
                                                 direction='nearest', suffixes=('_df1', '_df2'),
                                                 tolerance=time_threshold)
                 
@@ -799,7 +806,7 @@ class logDataGatherer():
                 self.df_all_data['TSED'] = np.nan
 
             else:
-                self.df_all_data = pd.merge_asof(self.df_turbidity, self.df_all_data,  on='TIME',
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_turbidity,  on='TIME',
                                                 direction='nearest', suffixes=('_df1', '_df2'), 
                                                 tolerance=time_threshold)
                 
@@ -810,7 +817,7 @@ class logDataGatherer():
 
             else: 
 
-                self.df_all_data = pd.merge_asof(self.df_cdom, self.df_all_data,  on='TIME',
+                self.df_all_data = pd.merge_asof( self.df_all_data, self.df_cdom,  on='TIME',
                                                 direction='nearest', suffixes=('_df1', '_df2'),
                                                 tolerance=time_threshold)
 
@@ -821,11 +828,10 @@ class logDataGatherer():
 
             else:
 
-                self.df_all_data = pd.merge_asof(self.df_do2, self.df_all_data,  on='TIME',
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_do2,   on='TIME',
                                                 direction='nearest', suffixes=('_df1', '_df2'),
                                                 tolerance=time_threshold)
 
-        print("About to merge")
         # Rearrange positions dataframe for better visibility
         self.df_all_data = self.df_all_data[self.cols]
 
@@ -833,18 +839,22 @@ class logDataGatherer():
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
         
-        print("Merged")
-        
-    def filter_data(self, polygon = False, duration_limit=-1, filter_underwater=False):
+        print("Data Merged")
 
+    def filter_data(self, polygon = False, duration_limit=-1, filter_underwater=False):
+        
+        # Turn the TIME columns back to UNIX float
+        print(self.df_all_data)
         self.df_all_data.sort_values(by='TIME')
+        self.df_all_data['TIME'] = self.df_all_data['TIME'].astype('int64') / 1e9
+
         initial_rows = len(self.df_all_data)
 
         # Check the duration of the current data gathered
         if duration_limit != -1:
 
             duration = self.df_all_data['TIME'].max() - self.df_all_data['TIME'].min()
-            
+
             # Duration of log is just too short so csv will not be created 
             if duration < duration_limit*60:
 
@@ -893,6 +903,7 @@ class logDataGatherer():
         if not self.df_all_data.isnull().all().all():  
             
             # Before writing to file let's add some general metadata
+            print("About to write to file")
             metadata = {
             'system' : self.name,
             'data_created' : datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -909,7 +920,7 @@ class logDataGatherer():
             with pd.ExcelWriter(self.file_name, engine='xlsxwriter') as writer:
 
                 print("Writing to {}".format(self.file_name))
-                self.df_all_data.to_excel(writer, sheet_name='DATA', index=False)
+                self.df_all_data.to_excel(writer, sheet_name='DATA', index=False, na_rep='NaN')
 
                 workbook = writer.book 
                 metadata_sheet = workbook.add_worksheet('METADATA')
@@ -1012,6 +1023,10 @@ class netCDFExporter():
             self.xrds['PSAL'].attrs['sdn_instrument_name'] = 'D-Metrec-X'
                                 
     def build_netCDF(self):
+
+        print("Building NETCDF File")
+
+        self.data_df = self.data_df.drop_duplicates(subset='TIME', keep='first')
 
         self.xrds = self.xrds.assign_coords(
             {

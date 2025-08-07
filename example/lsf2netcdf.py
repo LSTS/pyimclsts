@@ -254,7 +254,7 @@ if __name__ == '__main__':
         'geospatial_vertical_max' : concat_data['DEPH'].max()
         }
 
-        concat_data.to_excel(writer, sheet_name='DATA', index=False)
+        concat_data.to_excel(writer, sheet_name='DATA', index=False, na_rep='NaN')
         
         workbook = writer.book 
         metadata_sheet = workbook.add_worksheet('METADATA')
