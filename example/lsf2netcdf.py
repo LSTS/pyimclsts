@@ -135,8 +135,13 @@ if __name__ == '__main__':
             sub.subscribe_async(logData.update_salinity, msg_id=pg.messages.Salinity)
             sub.subscribe_async(logData.update_turbidity, msg_id=pg.messages.Turbidity)
             sub.subscribe_async(logData.update_chloro, msg_id=pg.messages.Chlorophyll)
+
+            # Caravel specific data
             sub.subscribe_async(logData.update_do2, msg_id=pg.messages.DissolvedOxygen)            
             sub.subscribe_async(logData.update_cdom, msg_id=pg.messages.DissolvedOrganicMatter)
+            sub.subscribe_async(logData.update_absolute_wind, msg_id=pg.messages.AbsoluteWind)
+            sub.subscribe_async(logData.update_pressure, msg_id=pg.messages.Pressure)
+            sub.subscribe_async(logData.update_saturation, msg_id=pg.messages.AirSaturation)
 
             # Run the even loop (This is asyncio witchcraft)
             sub.run()
@@ -153,6 +158,15 @@ if __name__ == '__main__':
                 # Once found the correct vehicle we will load up the Entity List dictionary
                 entity_list = sub._peers[key_with_entity_list]
 
+                entity_list = entity_list['EntityList']
+                print(entity_list)
+
+                # If we are using a caravel type vehicle we should obtain the source of air temperature and AirMax120W
+                if 'caravel' in key_with_entity_list:
+
+                    logData.air_mar_120w = entity_list.get('AirMar120WX', None)
+                    print("AirMar120WX: {}".format(logData.air_mar_120w))
+                    
             if 'lauv' in logData.name or 'autonaut' in logData.name or 'caravel' in logData.name or '2052' in logData.name:
                 print("Valid vehicle found in EntityList")
 

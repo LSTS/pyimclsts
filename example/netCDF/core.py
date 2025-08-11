@@ -148,6 +148,9 @@ class logDataGatherer():
         self.do2 = []
         self.cdom = []
         self.time = []
+        self.abs_wind = []
+        self.pressure = []
+        self.saturation = []
 
         self.name = 'NoName'
         self.cols = []
@@ -399,7 +402,25 @@ class logDataGatherer():
         if msg.type == pg.messages.DissolvedOrganicMatter.TYPE.COLORED:
             cdom = [time, msg.value]
             self.cdom.append(cdom)
-        
+
+    def update_absolute_wind(self, msg, callback):
+
+        time = msg._header.timestamp
+        abs_wind = [time, msg.speed, msg.direction]
+        self.abs_wind.append(abs_wind)
+
+    def update_pressure(self, msg, callback):
+
+        time = msg._header.timestamp
+        pressure = [time, msg.value]
+        self.pressure.append(pressure)
+
+    def update_saturation(self, msg, callback):
+
+        time = msg._header.timestamp
+        saturation = [time, msg.value]
+        self.saturation.append(saturation)
+
 
     # Use to compute Density from CTD values
     def computeDensity(self):
@@ -545,7 +566,7 @@ class logDataGatherer():
         self.df_temperatures = pd.DataFrame(self.temperature, columns=['TIME','SRC_ENT', 'TEMP'])
         self.df_temperatures = self.df_temperatures.sort_values(by='TIME')
         self.df_temperatures['TIME'] = pd.to_datetime(self.df_temperatures['TIME'], unit='s')
-
+    
         self.df_conductivity = pd.DataFrame(self.conductivity, columns=['TIME','SRC_ENT', 'CNDC'])
         self.df_conductivity = self.df_conductivity.sort_values(by='TIME')
         self.df_conductivity['TIME'] = pd.to_datetime(self.df_conductivity['TIME'], unit='s')
@@ -595,12 +616,26 @@ class logDataGatherer():
             self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
             self.df_chloro = self.df_chloro.groupby('TIME', as_index=False).mean(numeric_only=True)
 
-            # Create an empty dataframe so it is not empty
-            self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
-            self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
-            self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
+            self.df_pressure = pd.DataFrame(self.pressure, columns=['TIME', 'PRES'])
+            self.df_pressure = self.df_pressure.sort_values(by='TIME')
+            self.df_pressure['TIME'] = pd.to_datetime(self.df_pressure['TIME'], unit='s')
+            self.df_pressure = self.df_pressure.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+            self.df_saturation = pd.DataFrame(self.saturation, columns=['TIME', 'DOXY'])
+            self.df_saturation = self.df_saturation.sort_values(by='TIME')
+            self.df_saturation['TIME'] = pd.to_datetime(self.df_saturation['TIME'], unit='s')
+            self.df_saturation = self.df_saturation.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+            self.df_abs_wind = pd.DataFrame(self.abs_wind, columns=['TIME', 'WIND_S', 'WIND_D'])
+            self.df_abs_wind = self.df_abs_wind.sort_values(by='TIME')
+            self.df_abs_wind['TIME'] = pd.to_datetime(self.df_abs_wind['TIME'], unit='s')
+            self.df_abs_wind = self.df_abs_wind.groupby('TIME', as_index=False).mean(numeric_only=True)
 
 
+        # Create an empty dataframe so it is not empty
+        self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
+        self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
+        self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
 
 
     # Merge all data into a single dataframe for later filtering
@@ -725,12 +760,29 @@ class logDataGatherer():
 
             else:
 
+                ## Get the temperature values for AirMar Entity
+                if self.air_mar_120w != None:
+                    
+                    self.df_air_temp = self.df_temperatures.copy()
+                    self.df_air_temp = self.df_air_temp[self.df_air_temp['SRC_ENT'] == self.air_mar_120w]
+                    self.df_air_temp = self.df_air_temp.drop('SRC_ENT', axis=1)
+                    self.df_air_temp = self.df_air_temp.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+                    self.df_air_temp.rename(columns={'TEMP': 'CDTA'}, inplace=True)
+
+                    self.df_all_data = pd.merge_asof(self.df_all_data, self.df_air_temp, on='TIME', 
+                                                    direction='nearest', suffixes=('_df1', '_df2') )
+                    
+                    self.cols.append('CDTA')
+
                 self.df_temperatures = self.df_temperatures[self.df_temperatures['SRC_ENT'] == self.sensor_ent]
                 self.df_temperatures = self.df_temperatures.drop('SRC_ENT', axis=1)
                 self.df_temperatures = self.df_temperatures.groupby('TIME', as_index=False).mean(numeric_only=True)
 
                 self.df_all_data = pd.merge_asof(self.df_all_data, self.df_temperatures, on='TIME', 
                                                 direction='nearest', suffixes=('_df1', '_df2') )
+                
+                print(self.df_all_data)
                 
                 self.cols.append('TEMP')
         
@@ -786,6 +838,10 @@ class logDataGatherer():
             self.cols.append('CPWC')
             self.cols.append('CDOM')  
             self.cols.append('DO2')
+            self.cols.append('PRES')
+            self.cols.append('DOXY')
+            self.cols.append('WIND_S')
+            self.cols.append('WIND_D')
 
             # We will apply a time threshold for the merging of anything outside CTD sensors (which are our reference)
             time_threshold = pd.Timedelta(seconds=0.5)
@@ -832,19 +888,48 @@ class logDataGatherer():
                                                 direction='nearest', suffixes=('_df1', '_df2'),
                                                 tolerance=time_threshold)
 
+
+            if self.df_pressure.isnull().all().all():
+                print("NO PRESSURE FOUND. Filled with NULL")
+                self.df_all_data['PRES'] = np.nan
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_pressure, on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)
+
+            if self.df_saturation.isnull().all().all():
+
+                print("NO SATURATION FOUND. Filled with NULL")
+                self.df_all_data['DOXY'] = np.nan
+            
+            else:
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_saturation, on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)
+
+            if self.df_abs_wind.isnull().all().all():
+                print("NO ABSOLUTE WIND FOUND. Filled with NULL")
+                self.df_all_data['WIND_S'] = np.nan
+                self.df_all_data['WIND_D'] = np.nan
+
+            else:
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_abs_wind, on='TIME',
+                                                direction='nearest', suffixes=('_df1', '_df2'),
+                                                tolerance=time_threshold)\
+
         # Rearrange positions dataframe for better visibility
         self.df_all_data = self.df_all_data[self.cols]
 
         # Turn the normal dataframe into geopandas dataframe for easier filtering 
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
-        
+                
         print("Data Merged")
 
     def filter_data(self, polygon = False, duration_limit=-1, filter_underwater=False):
         
         # Turn the TIME columns back to UNIX float
-        print(self.df_all_data)
         self.df_all_data.sort_values(by='TIME')
         self.df_all_data['TIME'] = self.df_all_data['TIME'].astype('int64') / 1e9
 
