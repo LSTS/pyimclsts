@@ -137,6 +137,7 @@ if __name__ == '__main__':
             sub.subscribe_async(logData.update_chloro, msg_id=pg.messages.Chlorophyll)
             sub.subscribe_async(logData.update_do2, msg_id=pg.messages.DissolvedOxygen)            
             sub.subscribe_async(logData.update_cdom, msg_id=pg.messages.DissolvedOrganicMatter)
+            sub.subscribe_async(logData.update_battery, msg_id=pg.messages.Voltage)
 
             # Run the even loop (This is asyncio witchcraft)
             sub.run()
@@ -159,12 +160,15 @@ if __name__ == '__main__':
             else: 
                 raise Exception("No Vehile found in EntityList")
             
+            # Inside this entity list you can find all entities and their respective IDs
+            #print("Entity List: {}".format(entity_list))
+            
             # Gather the remaining positions and place the remaining data in a readable formar
             logData.finish_positions()
             # Create dataframes based on data collected from file
             logData.create_dataframes()
             # Merge that data into a single dataframe
-            logData.merge_data_caravel()
+            logData.merge_data()
             # Parse that data
             logData.filter_data(delimiter_polygon, min_time, filter_underwater)
             # Actually write to a csv file

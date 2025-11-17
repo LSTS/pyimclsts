@@ -148,6 +148,7 @@ class logDataGatherer():
         self.do2 = []
         self.cdom = []
         self.time = []
+        self.voltage = []
 
         self.name = 'NoName'
         self.cols = []
@@ -256,8 +257,6 @@ class logDataGatherer():
             corrected_loc = copy.deepcopy(self.currentLoc)
             corrected_loc.fill_it(msg)
             self.positions.append(copy.deepcopy(corrected_loc))
-
-            
             
         # Update previous location and timestamp
         self.lastTime = msg._header.timestamp 
@@ -289,10 +288,14 @@ class logDataGatherer():
             # Calculate course over ground
             course_ground = np.rad2deg(np.arctan2(item.vy, item.vx))
 
+            # Calculate true speed (x,y,z)
+            true_speed = [item.vx, item.vy, item.vz]
+            speed = np.linalg.norm(true_speed)
+
             lat = item.lat 
             lon =  item.lon 
 
-            point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground]
+            point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground, speed]
             self.estimated_states.append(point)
     
     def update_temperature(self, msg, callback):
@@ -399,7 +402,15 @@ class logDataGatherer():
         if msg.type == pg.messages.DissolvedOrganicMatter.TYPE.COLORED:
             cdom = [time, msg.value]
             self.cdom.append(cdom)
-        
+
+    def update_battery(self, msg, callback):
+
+        time = msg._header.timestamp
+        src_ent = msg._header.src_ent
+
+        voltage = [time, src_ent, msg.value]
+        self.voltage.append(voltage)
+
 
     # Use to compute Density from CTD values
     def computeDensity(self):
@@ -478,50 +489,6 @@ class logDataGatherer():
         # Density according to TEOS-10 
         teos_density = gsw.density.rho(abs_salinity, cons_temperature, pressure)
 
-        print(density)
-        print(teos_density)
-
-        """ 
-        
-        fig, axs = plt.subplots(2,2, figsize=(10,8), sharex=True)
-
-        # Plot Temperature vs Time
-        axs[0,0].plot(self.df_all_data['TIME'], self.df_all_data['TEMP'], color='red', marker='o', label='Temperature (°C)')
-        axs[0,0].set_title('Temperature vs Time')
-        axs[0,0].set_ylabel('Temperature (°C)')
-        axs[0,0].legend(loc='upper right')
-        axs[0,0].grid(True)
-
-        # Plot Humidity vs Time
-        axs[0,1].plot(self.df_all_data['TIME'], self.df_all_data['PSAL'], color='blue', label='Salinity')
-        axs[0,1].set_title('Salinity vs Time')
-        axs[0,1].set_ylabel('Salinity')
-        axs[0,1].legend(loc='upper right')
-        axs[0,1].grid(True)
-
-        # Plot Pressure vs Time
-        axs[1,0].plot(self.df_all_data['TIME'], self.df_all_data['PRES'], color='green', label='Pressure (dBar)')
-        axs[1,0].set_title('Pressure vs Time')
-        axs[1,0].set_ylabel('Pressure (dBar)')
-        axs[1,0].set_xlabel('Time')
-        axs[1,0].legend(loc='upper right')
-        axs[1,0].grid(True)
-
-        # Plot Density vs Time
-        axs[1, 1].plot(self.df_all_data['TIME'], density, color='purple', marker='x', linestyle='--', label='Density')
-        axs[1, 1].set_title('Density vs Time')
-        axs[1, 1].set_ylabel('Density')
-        axs[1, 1].legend()
-        axs[1, 1].grid(True)
-
-        # Add shared X-axis label and adjust layout
-        for ax in axs[1, :]:  # Add X-axis label only to the bottom row
-            ax.set_xlabel('Time (hours)')
-        plt.tight_layout()
-        plt.show()
-
-        """
-
     # Save the variables in a dataframe for easier parsing
     def create_dataframes(self):
         
@@ -530,7 +497,7 @@ class logDataGatherer():
             raise Exception("Log has no ESTIMATED STATE")
         
         else:
-            self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA'])
+            self.df_positions = pd.DataFrame(self.estimated_states, columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'SPEED'])
             self.df_positions = self.df_positions.sort_values(by='TIME')
             self.df_positions['TIME'] = pd.to_datetime(self.df_positions['TIME'], unit='s')
 
@@ -561,18 +528,30 @@ class logDataGatherer():
         self.df_salinity['TIME'] = pd.to_datetime(self.df_salinity['TIME'], unit='s')
         self.df_salinity = self.df_salinity.groupby('TIME', as_index=False).mean(numeric_only=True)
         
-        if self.name == 'lauv-xplore-2': 
-            self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
-            self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
-            self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
-            self.df_turbidity = self.df_turbidity.groupby('TIME', as_index=False).mean(numeric_only=True)
+        # This first check is usefull for filtering the correct entity for batteries 
+        if "lauv" in self.name:
 
-            self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
-            self.df_chloro = self.df_chloro.sort_values(by='TIME')
-            self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
-            self.df_chloro = self.df_chloro.groupby('TIME', as_index=False).mean(numeric_only=True)
+            self.df_voltage = pd.DataFrame(self.voltage, columns = ['TIME', 'SRC_ENT', 'VOLT'])
+            self.df_voltage = self.df_voltage[self.df_voltage['SRC_ENT'] == 68]
+            self.df_voltage = self.df_voltage.drop('SRC_ENT', axis=1)
 
+            self.df_voltage = self.df_voltage.sort_values(by='TIME')
+            self.df_voltage['TIME'] = pd.to_datetime(self.df_voltage['TIME'], unit='s')
+            self.df_voltage = self.df_voltage.groupby('TIME', as_index=False).mean(numeric_only=True)
 
+            if self.name == 'lauv-xplore-2': 
+
+                self.df_turbidity = pd.DataFrame(self.turbidity, columns=['TIME', 'TSED'])
+                self.df_turbidity = self.df_turbidity.sort_values(by='TIME')
+                self.df_turbidity['TIME'] = pd.to_datetime(self.df_turbidity['TIME'], unit='s')
+                self.df_turbidity = self.df_turbidity.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+                self.df_chloro =  pd.DataFrame(self.chloro, columns=['TIME', 'CPWC'])
+                self.df_chloro = self.df_chloro.sort_values(by='TIME')
+                self.df_chloro['TIME'] = pd.to_datetime(self.df_chloro['TIME'], unit='s')
+                self.df_chloro = self.df_chloro.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+        
         if self.name == 'caravel':
          
             self.df_cdom = pd.DataFrame(self.cdom, columns=['TIME', 'CDOM'])
@@ -601,12 +580,10 @@ class logDataGatherer():
             self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
 
 
-
-
     # Merge all data into a single dataframe for later filtering
     def merge_data(self):
 
-        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'MEDIUM']
+        self.cols = ['TIME','LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'TEMP', 'CNDC', 'SVEL', 'PSAL', 'MEDIUM', 'SPEED']
         
         # Do a sanity check and look for the sensor gathering oceanographic data
         # Also merge data by lowest frequency data which seems to always be the sound speed variable
@@ -645,25 +622,37 @@ class logDataGatherer():
         else:
             self.df_all_data = pd.merge_asof(self.df_all_data, self.df_salinity, on='TIME',
                                             direction='nearest', suffixes=('_df1', '_df2'))
-            
-        if self.name == 'lauv-xplore-2':
         
-            if self.df_chloro.isnull().all().all():
-                print("NO CHLOROPHYLL FOUND")
-
-            else:
-                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_chloro, on='TIME',
-                                                direction='nearest', suffixes=('_df1', '_df2'))
-                self.cols.append('CPWC')
-                
+        if "lauv" in self.name:
             
-            if self.df_turbidity.isnull().all().all():
-                print("NO TURBIDITY FOUND")
+            if self.df_voltage.isnull().all().all():
+                print("NO VOLTAGE VALUES FOUND")
 
             else:
-                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_turbidity, on='TIME',
-                                                direction='nearest', suffixes=('_df1', '_df2'))
-                self.cols.append('TSED')
+                
+                self.df_all_data = pd.merge_asof(self.df_all_data, self.df_voltage, on='TIME',
+                                                 direction='nearest', suffixes=('_df1', '_df2'))
+                self.cols.append('VOLT')
+                
+
+            if self.name == 'lauv-xplore-2':
+            
+                if self.df_chloro.isnull().all().all():
+                    print("NO CHLOROPHYLL FOUND")
+
+                else:
+                    self.df_all_data = pd.merge_asof(self.df_all_data, self.df_chloro, on='TIME',
+                                                    direction='nearest', suffixes=('_df1', '_df2'))
+                    self.cols.append('CPWC')
+                    
+                
+                if self.df_turbidity.isnull().all().all():
+                    print("NO TURBIDITY FOUND")
+
+                else:
+                    self.df_all_data = pd.merge_asof(self.df_all_data, self.df_turbidity, on='TIME',
+                                                    direction='nearest', suffixes=('_df1', '_df2'))
+                    self.cols.append('TSED')
         
         if self.df_positions.isnull().all().all():
             print("NO POSITIONS FOUND")
@@ -687,7 +676,6 @@ class logDataGatherer():
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
         
-
     # Merge all data into a single dataframe for later filtering
     def merge_data_caravel(self):
 
@@ -844,7 +832,6 @@ class logDataGatherer():
     def filter_data(self, polygon = False, duration_limit=-1, filter_underwater=False):
         
         # Turn the TIME columns back to UNIX float
-        print(self.df_all_data)
         self.df_all_data.sort_values(by='TIME')
         self.df_all_data['TIME'] = self.df_all_data['TIME'].astype('int64') / 1e9
 
