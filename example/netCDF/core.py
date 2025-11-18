@@ -3,6 +3,7 @@ import geopandas.geodataframe
 import matplotlib.pyplot as plt
 import seawater as sea
 import gsw 
+from dataclasses import dataclass, field
 from datetime import datetime
 import pandas as pd
 import xarray as xr
@@ -123,16 +124,14 @@ class locationType():
         
         return displacements
     
-
 class logDataGatherer():
-    
+
     def __init__(self, f : str) -> None:
         '''f is file name'''
 
         self.file_name = f
         
         ## This will have to be seperated 
-        self.datatable = []
         self.temperature = []
         self.estimated_states = []
         self.sound_speed = []
@@ -152,8 +151,9 @@ class logDataGatherer():
         self.name = 'NoName'
         self.cols = []
 
-        ## Usefull for parsing 
-        self.sensor_ent = -1
+        ## Will replace the structures above by the data structures above 
+        self.data = {}
+        self.entities = {}
 
         ## Usefull for correcting positions 
         self.currentLoc = locationType()
@@ -168,6 +168,14 @@ class logDataGatherer():
         # Will skip updated state message if difference between timestamps isn't big enough (milliseconds)
         self.msg_diff_time = 99.5
 
+    # Related to filling this dictionary
+    def addData(self, key, value):
+        
+        if key not in self.data:
+            self.data[key] = []
+
+        self.data[key].append(value)
+
 
     """
     # After added offsets we check if the value needs to be corrected or not ## 
@@ -177,6 +185,141 @@ class logDataGatherer():
     # that the vehicle has resurfaced and a correction to its position was made.
     # We then propagate that correction to all previous uncorrected measurements
     """
+    
+    def update_temperature(self, msg, callback):
+
+        time = msg._header.timestamp
+        src_ent = msg._header.src_ent
+        temp = [time, src_ent, msg.value]
+
+        self.temperature.append(temp)
+        
+    def update_state(self, msg, callback):
+        
+        time = msg._header.timestamp
+        self.time.append(time)
+
+        if (time*1000 - self.us_last_time*1000) < self.msg_diff_time:
+            
+            return
+
+        self.correct_positions(msg)
+        
+        # Clear current location and update previous time
+        self.currentLoc.__init__()
+        self.us_last_time = time
+
+    def update_pressure(self, msg, callback):
+
+        time = msg._header.timestamp
+        src_ent = msg._header.src_ent 
+        pressure = [time, src_ent, msg.value]
+        self.pressure.append(pressure)
+
+    def update_sound_speed(self, msg, callback):
+
+        time = msg._header.timestamp
+        sspeed = [time, msg.value]
+        self.sound_speed.append(sspeed)
+
+    def update_conductivity(self, msg, callback):
+
+        time = msg._header.timestamp
+
+        src_ent = msg._header.src_ent
+        conductivity  = [time, src_ent, msg.value]
+        self.conductivity.append(conductivity)
+
+    # Turbidity may or may not exist depending on the vehicle
+    def update_turbidity(self, msg, callback):
+
+        time = msg._header.timestamp
+        turbidity  = [time, msg.value]
+        self.turbidity.append(turbidity)
+    
+    # Chlorophyll may also exist or not depending on the vehicle
+    def update_chloro(self, msg, callback):
+
+        time = msg._header.timestamp
+        chloro = [time, msg.value]
+        self.chloro.append(chloro)
+    
+    def update_salinity(self, msg, callback):
+        
+        time = msg._header.timestamp
+        salinity = [time, msg.value]
+        self.salinity.append(salinity)
+
+    def update_vehicle_medium(self, msg, callback):
+
+        time = msg._header.timestamp
+        medium = [time, msg.medium]
+        self.medium.append(medium)
+
+    def update_thruster_actuation(self, msg, callback):
+
+        time = msg._header.timestamp 
+        thruster = [time, msg.value]
+        self.thurster_actuation.append(thruster)
+
+    def update_set_servo_position(self, msg, callback):
+
+        time = msg._header.timestamp
+        which_servo = msg.id 
+        servo = [time, msg.id, msg.value]
+        self.set_servo_position.append(servo)
+
+    def update_servo_position(self, msg, callback):
+
+        time = msg._header.timestamp
+        which_servo = msg.id
+        servo_position = [time, which_servo, msg.value]
+        self.servo_position.append(servo_position)
+
+    def update_do2(self, msg, callback):
+
+        time = msg._header.timestamp
+        do2 = [time, msg.value]
+        self.do2.append(do2)
+        
+    def update_cdom(self, msg, callback):
+
+        time = msg._header.timestamp
+
+        if msg.type == pg.messages.DissolvedOrganicMatter.TYPE.COLORED:
+            cdom = [time, msg.value]
+            self.cdom.append(cdom)
+
+    def update_acceleration(self, msg, callback):
+
+        time = msg._header.timestamp
+        accel = [time, msg.x, msg.y, msg.z]
+        self.addData('Acceleration', accel)
+
+    def update_wind(self, msg, callback):
+
+        time = msg._header.timestamp
+        wind = [time, msg.direction, msg.speed]
+        self.addData('AbsoluteWind', wind)
+
+    def update_thruster(self, msg, callback):
+
+        time = msg._header.timestamp 
+        thruster = [time, msg.value]
+        self.addData('Thruster', thruster)
+
+    def update_voltage(self, msg, callback):
+
+        time = msg._header.timestamp
+        volt = [time, msg._header.src_ent, msg.value]
+        self.addData('Voltage', volt)
+
+    def update_displacement(self, msg, callback):
+
+        time = msg._header.timestamp
+        disp = [time, msg._header.src_ent, msg.z]
+        self.addData('Displacement', disp)
+        
 
     def correct_positions(self, msg):
 
@@ -257,12 +400,9 @@ class logDataGatherer():
             corrected_loc.fill_it(msg)
             self.positions.append(copy.deepcopy(corrected_loc))
 
-            
-            
         # Update previous location and timestamp
         self.lastTime = msg._header.timestamp 
         self.lastLoc = copy.deepcopy(self.currentLoc)
-
 
     def finish_positions(self):
         
@@ -294,113 +434,40 @@ class logDataGatherer():
 
             point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground]
             self.estimated_states.append(point)
-    
-    def update_temperature(self, msg, callback):
 
-        time = msg._header.timestamp
-        src_ent = msg._header.src_ent
-        temp = [time, src_ent, msg.value]
-        self.temperature.append(temp)
+    def caravel_finish_positions(self):
+
+        # The last values of the log will probably not need corretion (Assuming it finishes in the surface)
+        for index, item in enumerate(self.nonAdjusted):
+
+            adj = item 
+            loc = copy.deepcopy(self.nonAdjustedLoc[index])
+            loc.add_offsets()
+            loc.fill_it(adj)
+            self.positions.append(loc)
+
+        for item in self.positions:
+
+            # Turn the roll, pitch, yaw into readable degrees
+            roll = np.rad2deg(np.arctan2(np.sin(item.roll), np.cos(item.roll)))
+            pitch = np.rad2deg(np.arctan2(np.sin(item.pitch), np.cos(item.pitch)))
+            yaw = np.rad2deg(np.arctan2(np.sin(item.yaw), np.cos(item.yaw)))
+
+            # Calculate the velocity over ground magniute (dont take into account z axis)
+            ground_speed =  [item.vx, item.vy]
+            ground_speed = np.linalg.norm(ground_speed)
+
+            # Calculate course over ground
+            course_ground = np.rad2deg(np.arctan2(item.vy, item.vx))
+
+            lat = item.lat 
+            lon =  item.lon 
+
+            point = [item.time, np.rad2deg(lat), np.rad2deg(lon), item.depth, roll, pitch, yaw, ground_speed, course_ground, item.vx, item.vy, item.vy]
+            self.addData('EstimatedState', point)
+
+            #self.estimated_states.append(point)
         
-    def update_state(self, msg, callback):
-        
-        time = msg._header.timestamp
-
-        if (time*1000 - self.us_last_time*1000) < self.msg_diff_time:
-            
-            return
-
-        self.correct_positions(msg)
-        
-        # Clear current location and update previous time
-        self.currentLoc.__init__()
-        self.us_last_time = time
-    
-    def update_pressure(self, msg, callback):
-
-        time = msg._header.timestamp
-        src_ent = msg._header.src_ent 
-        pressure = [time, src_ent, msg.value]
-        self.pressure.append(pressure)
-
-    def update_sound_speed(self, msg, callback):
-
-        time = msg._header.timestamp
-        sspeed = [time, msg.value]
-        self.sound_speed.append(sspeed)
-
-    def update_conductivity(self, msg, callback):
-
-        time = msg._header.timestamp
-
-        time_list = [time]
-        self.time.append(time_list)
-
-        src_ent = msg._header.src_ent
-        conductivity  = [time, src_ent, msg.value]
-        self.conductivity.append(conductivity)
-
-    # Turbidity may or may not exist depending on the vehicle
-    def update_turbidity(self, msg, callback):
-
-        time = msg._header.timestamp
-        turbidity  = [time, msg.value]
-        self.turbidity.append(turbidity)
-    
-    # Chlorophyll may also exist or not depending on the vehicle
-    def update_chloro(self, msg, callback):
-
-        time = msg._header.timestamp
-        chloro = [time, msg.value]
-        self.chloro.append(chloro)
-    
-    def update_salinity(self, msg, callback):
-        
-        time = msg._header.timestamp
-        salinity = [time, msg.value]
-        self.salinity.append(salinity)
-
-    def update_vehicle_medium(self, msg, callback):
-
-        time = msg._header.timestamp
-        medium = [time, msg.medium]
-        self.medium.append(medium)
-
-    def update_thruster_actuation(self, msg, callback):
-
-        time = msg._header.timestamp 
-        thruster = [time, msg.value]
-        self.thurster_actuation.append(thruster)
-
-    def update_set_servo_position(self, msg, callback):
-
-        time = msg._header.timestamp
-        which_servo = msg.id 
-        servo = [time, msg.id, msg.value]
-        self.set_servo_position.append(servo)
-
-    def update_servo_position(self, msg, callback):
-
-        time = msg._header.timestamp
-        which_servo = msg.id
-        servo_position = [time, which_servo, msg.value]
-        self.servo_position.append(servo_position)
-
-    def update_do2(self, msg, callback):
-
-        time = msg._header.timestamp
-        do2 = [time, msg.value]
-        self.do2.append(do2)
-        
-    def update_cdom(self, msg, callback):
-
-        time = msg._header.timestamp
-
-        if msg.type == pg.messages.DissolvedOrganicMatter.TYPE.COLORED:
-            cdom = [time, msg.value]
-            self.cdom.append(cdom)
-        
-
     # Use to compute Density from CTD values
     def computeDensity(self):
 
@@ -600,8 +667,91 @@ class logDataGatherer():
             self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
             self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
 
+    def caravel_create_dataframes(self):
+        
+        if self.time:
+
+            self.df_all_data = pd.DataFrame(self.time, columns=['TIME'])
+            self.df_all_data['TIME'] = pd.to_datetime(self.df_all_data['TIME'], unit='s')
+            self.df_all_data = self.df_all_data.groupby('TIME', as_index=False).mean(numeric_only=True)
+
+        else:
+            raise Exception("Log has no Time Values")
+
+        if 'Voltage' not in self.data:
+            raise Exception("Log has no Voltage values")
+        
+        else:
+            self.df_voltage = pd.DataFrame(self.data['Voltage'], columns=['TIME', 'ENT', 'VOLT'])
+            self.df_voltage = self.df_voltage.sort_values(by='TIME')
+            self.df_voltage['TIME'] = pd.to_datetime(self.df_voltage['TIME'], unit='s')
+
+            # Dropping the entity
+            self.df_voltage = self.df_voltage[self.df_voltage['ENT'] == self.entities['EntityList']['Batteries']]
+            self.df_voltage = self.df_voltage.drop('ENT', axis=1)
+            
+            self.df_all_data = pd.merge_asof(self.df_voltage, self.df_all_data, on='TIME', 
+                                            direction='nearest', suffixes=('_df1', '_df2'))
+
+        # Check dictionary for specific messages
+        if 'EstimatedState' not in self.data:
+            raise Exception("Log has no ESTIMATED STATE")
+        
+        else:
+            self.df_positions = pd.DataFrame(self.data['EstimatedState'], columns=['TIME', 'LATITUDE', 'LONGITUDE', 'DEPTH', 'ROLL', 'PTCH', 'HDNG', 'APSA', 'APDA', 'VX', 'VY', 'VZ'])
+            self.df_positions = self.df_positions.sort_values(by='TIME')
+            self.df_positions['TIME'] = pd.to_datetime(self.df_positions['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_positions, on='TIME', 
+                                            direction='nearest', suffixes=('_df1', '_df2'))      
+              
+        if 'Acceleration' not in self.data:
+            raise Exception("Log has no Acceleration values")
+        
+        else:
+            self.df_accel = pd.DataFrame(self.data['Acceleration'], columns=['TIME', 'AX', 'AY', 'AZ'])
+            self.df_accel = self.df_accel.sort_values(by='TIME')
+            self.df_accel['TIME'] = pd.to_datetime(self.df_accel['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_accel, on='TIME', 
+                                direction='nearest', suffixes=('_df1', '_df2'))     
+
+        if 'AbsoluteWind' not in self.data:
+            raise Exception("Log has no AbsoluteWind values")
+        
+        else:
+            self.df_absolute = pd.DataFrame(self.data['AbsoluteWind'], columns=['TIME', 'WIND_DIR', 'WIND_VAL'])
+            self.df_absolute = self.df_absolute.sort_values(by='TIME')
+            self.df_absolute['TIME'] = pd.to_datetime(self.df_absolute['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_absolute, on='TIME', 
+                    direction='nearest', suffixes=('_df1', '_df2'))   
 
 
+        if 'Thruster' not in self.data:
+            raise Exception("Log has no Thruster values")
+        
+        else:
+            self.df_thruster = pd.DataFrame(self.data['Thruster'], columns=['TIME', 'THRUSTER'])
+            self.df_thruster = self.df_thruster.sort_values(by='TIME')
+            self.df_thruster['TIME'] = pd.to_datetime(self.df_thruster['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_thruster, on='TIME', 
+                    direction='nearest', suffixes=('_df1', '_df2'))   
+            
+        if 'Displacement' not in self.data:
+            raise Exception("Log has no Displacement values")
+        
+        else: 
+
+            self.df_disp = pd.DataFrame(self.data['Thruster'], columns=['TIME', 'THRUSTER'])
+            self.df_disp = self.df_disp.sort_values(by='TIME')
+            self.df_disp['TIME'] = pd.to_datetime(self.df_disp['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_disp, on='TIME', 
+                    direction='nearest', suffixes=('_df1', '_df2'))   
+            
+        print(self.df_all_data)
 
     # Merge all data into a single dataframe for later filtering
     def merge_data(self):
@@ -687,36 +837,14 @@ class logDataGatherer():
         self.df_all_data = geopandas.GeoDataFrame(self.df_all_data,
                                                 geometry = geopandas.points_from_xy(self.df_all_data.LONGITUDE, self.df_all_data.LATITUDE))
         
-
     # Merge all data into a single dataframe for later filtering
     def merge_data_caravel(self):
 
         # These columns are mandatory since this initial information is absolutely required to localize our data
-        self.cols = ['TIME', 'LATITUDE', 'LONGITUDE', 'DEPH', 'ROLL', 'PTCH', 'HDNG']
-
+        self.cols = ['TIME', 'LAT', 'LON', 'DEPH', 'ROLL', 'PTCH', 'HDNG',]
 
         # Do a sanity check and look for the sensor gathering oceanographic data
-        # Also merge data by lowest frequency data which seems to always be the sound speed variable
-        if self.df_sound_speed.isnull().all().all():
-            print("NO SOUND SPEED FOUND")
-        
-        else: 
-
-            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_sound_speed,  on='TIME', 
-                                            direction='nearest', suffixes=('_df1', '_df2'))
-            self.cols.append('SVEL')
-            
-        if self.df_conductivity.isnull().all().all():
-            print("NO CONDUCTIVITY FOUND")
-
-        else:
-
-            # Save the correct entity to later filter temperature values
-            self.sensor_ent = self.df_conductivity.loc[1, 'SRC_ENT']
-            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_conductivity,  on='TIME', 
-                                            direction='nearest', suffixes=('_df1', '_df2'))
-            self.cols.append('CNDC')
-            
+        # Also merge data by lowest frequency data which seems to always be the sound speed variable   
         if self.sensor_ent != -1:
 
             if self.df_temperatures.isnull().all().all():
@@ -861,14 +989,17 @@ class logDataGatherer():
                 raise Exception("Log has a duration of {} minutes which is lower than the required {} minutes"
                                 .format(duration/60, duration_limit))
         
-        if filter_underwater:
-
+        if filter_underwater and 'MEDIUM' in self.df_all_data:
+            
             self.df_all_data = self.df_all_data[(self.df_all_data['MEDIUM'] != 0) & (self.df_all_data['PSAL'] != 0)]
             underwater_rows = len(self.df_all_data)
 
             if (initial_rows - underwater_rows) > 0:
 
                 print("{} points were removed due to Underwater Filter".format(initial_rows - underwater_rows))
+
+            # Medium data is really not necessary after filtering
+            self.df_all_data = self.df_all_data.drop('MEDIUM', axis=1)
 
         else: 
             print("No underwater filter was specified")
@@ -893,12 +1024,10 @@ class logDataGatherer():
         if self.df_all_data.isnull().all().all():
 
             raise Exception("log was filtered out")
-        
-        # Medium data is really not necessary after filtering
-        self.df_all_data = self.df_all_data.drop('MEDIUM', axis=1)
 
-        
     def write_to_file(self):
+
+        print("Writing to a file")
 
         if not self.df_all_data.isnull().all().all():  
             
@@ -913,8 +1042,8 @@ class logDataGatherer():
             'geospatial_lat_max' : self.df_all_data['LATITUDE'].max(),
             'geospatial_lon_min' : self.df_all_data['LONGITUDE'].min(),
             'geospatial_lon_max' : self.df_all_data['LONGITUDE'].max(),
-            'geospatial_vertical_min' : self.df_all_data['DEPH'].min(),
-            'geospatial_vertical_max' : self.df_all_data['DEPH'].max()
+            'geospatial_vertical_min' : self.df_all_data['DEPTH'].min(),
+            'geospatial_vertical_max' : self.df_all_data['DEPTH'].max()
             }
 
             with pd.ExcelWriter(self.file_name, engine='xlsxwriter') as writer:
@@ -969,8 +1098,7 @@ class netCDFExporter():
             self.data_attrs = json.load(f)
         # Save it in the dataset attrbutes
         #self.xrds.attrs = global_attrs
-    
-                
+            
     def replace_json_metadata(self):
         
         if not 'date_created' in self.global_attrs:
