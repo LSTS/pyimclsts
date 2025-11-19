@@ -744,9 +744,13 @@ class logDataGatherer():
         
         else: 
 
-            self.df_disp = pd.DataFrame(self.data['Thruster'], columns=['TIME', 'THRUSTER'])
+            self.df_disp = pd.DataFrame(self.data['Displacement'], columns=['TIME','ENT','DISP_Z'])
             self.df_disp = self.df_disp.sort_values(by='TIME')
             self.df_disp['TIME'] = pd.to_datetime(self.df_disp['TIME'], unit='s')
+
+            # Dropping the entity
+            self.df_disp = self.df_disp[self.df_disp['ENT'] == self.entities['EntityList']['Wave Frequency Estimator']]
+            self.df_disp = self.df_disp.drop('ENT', axis=1)
 
             self.df_all_data = pd.merge_asof(self.df_all_data, self.df_disp, on='TIME', 
                     direction='nearest', suffixes=('_df1', '_df2'))   
