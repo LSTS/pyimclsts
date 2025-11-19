@@ -22,9 +22,10 @@ if __name__ == '__main__':
 
     # Open Data sets and turn them into pandas dataframes 
     # Variables to look up on Sea Dataset 
+    # Wave Signficant Height, Spectral Density Maximum, Sea Surface Wave From direction, "current" speed x,y  
     waveVarNames = ['VHM0', 'VTPK', 'VMDR_WW', 'VSDX', 'VSDY'] 
 
-    ## First the Sea Data
+    ## First the Sea Da
     seaData = xr.open_dataset(seaPath)
 
     """
@@ -38,6 +39,9 @@ if __name__ == '__main__':
     caravelDataDf = caravelDataDf.set_index('TIME').sort_index()
     caravelDataDf = caravelDataDf[caravelDataDf['THRUSTER'] == 0]
     caravelDataDf = caravelDataDf.drop('THRUSTER')
+
+    for var in waveVarNames: 
+        caravelDataDf[var] 
 
 
     ## Important to note here that the frequency of my temporal data regarding the vehicle 
