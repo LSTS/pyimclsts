@@ -16,6 +16,7 @@ import sys as _sys
 import os as _os
 
 import pyimclsts.core as _core
+import pyimclsts.index as _index
 
 _module_name = 'pyimc_generated' # and folder name
 _location = _os.getcwd() + '/' + _module_name + '/__init__.py'
@@ -482,10 +483,11 @@ class message_bus_st(_message_bus):
 
 class subscriber:
 
-    __slots__ = ['_msg_manager', '_subscriptions', '_subscripted_all', '_periodic', '_call_once', '_use_mp', '_peers', '_src2name', '_keep_running']
+    __slots__ = ['_msg_manager', '_subscriptions', '_subscripted_all', '_periodic', '_call_once', '_use_mp', '_use_index', '_peers', '_src2name', '_keep_running']
 
-    def __init__(self, IO_interface : _core.base_IO_interface, *,big_endian=False, use_mp = False) -> None:
+    def __init__(self, IO_interface : _core.base_IO_interface, *,big_endian=False, use_mp = False, use_index = True) -> None:
         self._use_mp = use_mp
+        self._use_index = use_index
         if self._use_mp:
             self._msg_manager = message_bus(IO_interface, big_endian)
         else:
@@ -525,8 +527,98 @@ class subscriber:
             await _asyncio.sleep(_period)
             loop.call_later(_period, f, send_callback)
 
+    async def _dispatch_unparsed_message(self, msg : bytes, send_callback : Callable[[_core.IMC_message], None]):
+        mgid, src, src_ent = _get_id_src_src_ent(msg)
+        desel_message = None
+
+        if mgid in self._subscriptions:
+            desel_message = unpack(msg, fast_mode=True)
+            for f in self._subscriptions[mgid]:
+                if self._validate_call(src, src_ent, f[1], f[2]):
+                    await f[0](desel_message, send_callback)
+
+        if self._subscripted_all:
+            if desel_message is None:
+                desel_message = unpack(msg, fast_mode=True)
+            for f in self._subscripted_all:
+                if self._validate_call(src, src_ent, f[1], f[2]):
+                    await f[0](desel_message, send_callback)
+
+    def _can_use_indexed_file_replay(self) -> bool:
+        if not self._use_index:
+            return False
+        if self._use_mp:
+            return False
+        io_interface = getattr(self._msg_manager, '_io_interface', None)
+        return isinstance(io_interface, _core.file_interface)
+
+    def _ensure_log_index(self, log_path : str) -> str:
+        index_path = f'{log_path}.idx'
+        rebuild_reason = None
+        needs_rebuild = not _os.path.isfile(index_path)
+        if needs_rebuild:
+            rebuild_reason = 'missing index file'
+        if not needs_rebuild:
+            try:
+                needs_rebuild = _os.path.getmtime(index_path) < _os.path.getmtime(log_path)
+                if needs_rebuild:
+                    rebuild_reason = 'index older than log file'
+            except OSError:
+                needs_rebuild = True
+                rebuild_reason = 'could not read file timestamps'
+        if needs_rebuild:
+            print(f'[pyimclsts] Building log index: {index_path} ({rebuild_reason}).')
+            _index.build_index(log_path, index_path=index_path, sync_number=_pg._base._sync_number)
+            print(f'[pyimclsts] Finished building log index: {index_path}')
+        return index_path
+
+    async def _event_loop_indexed_file(self):
+        io_interface = self._msg_manager._io_interface
+        log_path = io_interface._input
+        if log_path is None:
+            raise ValueError('file_interface.input is not defined.')
+        index_path = self._ensure_log_index(log_path)
+
+        if not self._subscriptions and not self._subscripted_all:
+            return
+
+        selected_msg_ids = None if self._subscripted_all else set(self._subscriptions.keys())
+        frame_overhead = 22  # 20-byte header + 2-byte CRC
+
+        def _send_stub(message, *, src=None, src_ent=None, dst=None, dst_ent=None):
+            return None
+
+        for callback, _delay in self._call_once:
+            if _inspect.iscoroutinefunction(callback):
+                await callback(_send_stub)
+            elif callable(callback):
+                callback(_send_stub)
+
+        with open(log_path, 'rb') as log_file:
+            for record in _index.iter_index(index_path):
+                if not self._keep_running:
+                    break
+                if selected_msg_ids is not None and record.msg_id not in selected_msg_ids:
+                    continue
+
+                log_file.seek(record.offset)
+                msg_size = frame_overhead + record.payload_size
+                raw_msg = log_file.read(msg_size)
+                if len(raw_msg) != msg_size:
+                    continue
+
+                await self._dispatch_unparsed_message(raw_msg, _send_stub)
+                await _asyncio.sleep(0)
+
     async def _event_loop(self):
         msg_mgr = self._msg_manager
+        if self._can_use_indexed_file_replay():
+            try:
+                await self._event_loop_indexed_file()
+                return
+            except Exception as e:
+                print(f'Warning: Indexed replay failed ({e}). Falling back to stream parser.')
+
         try:
             if self._use_mp:
                 msg_mgr.open()
@@ -552,14 +644,7 @@ class subscriber:
 
             while self._keep_running:
                 msg = msg_mgr.recv() if self._use_mp else await msg_mgr.recv()
-                mgid, src, src_ent = _get_id_src_src_ent(msg)
-                if mgid in self._subscriptions:
-                    desel_message = unpack(msg, fast_mode=True)
-                    for f in self._subscriptions[mgid]:
-                        if self._validate_call(src, src_ent, f[1], f[2]):
-                            await f[0](desel_message, msg_mgr.send)
-                
-                [await f[0](unpack(msg, fast_mode=True), msg_mgr.send) for f in self._subscripted_all if self._validate_call(src, src_ent, f[1], f[2])]
+                await self._dispatch_unparsed_message(msg, msg_mgr.send)
                 # Offer an exit point
                 await _asyncio.sleep(0)
         except EOFError:

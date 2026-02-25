@@ -5,7 +5,6 @@ import math
 import os
 import shutil
 import sys
-import tempfile
 import threading
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,13 +47,19 @@ def _decompress_if_needed(path: str):
     if not path.endswith('.gz'):
         return path, None
 
-    tmp = tempfile.NamedTemporaryFile(prefix='imc_', suffix='.lsf', delete=False)
-    tmp.close()
+    lsf_path = path[:-3]  # strip ".gz"
+    src_stat = os.stat(path)
+    if os.path.isfile(lsf_path):
+        lsf_stat = os.stat(lsf_path)
+        if lsf_stat.st_mtime_ns >= src_stat.st_mtime_ns:
+            return lsf_path, None
 
-    with gzip.open(path, 'rb') as src, open(tmp.name, 'wb') as dst:
+    tmp_lsf_path = f'{lsf_path}.tmp'
+    with gzip.open(path, 'rb') as src, open(tmp_lsf_path, 'wb') as dst:
         shutil.copyfileobj(src, dst)
 
-    return tmp.name, tmp.name
+    os.replace(tmp_lsf_path, lsf_path)
+    return lsf_path, None
 
 
 def _curve_label_from_log_path(log_path: str) -> str:
