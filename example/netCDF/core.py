@@ -717,7 +717,8 @@ class logDataGatherer():
                                 direction='nearest', suffixes=('_df1', '_df2'))     
 
         if 'AbsoluteWind' not in self.data:
-            raise Exception("Log has no AbsoluteWind values")
+            print("Log has no AbsoluteWind values")
+            #raise Exception("Log has no AbsoluteWind values")
         
         else:
             self.df_absolute = pd.DataFrame(self.data['AbsoluteWind'], columns=['TIME', 'WIND_DIR', 'WIND_VAL'])
@@ -729,6 +730,7 @@ class logDataGatherer():
 
 
         if 'Thruster' not in self.data:
+            #print("Log has no Thruster values")
             raise Exception("Log has no Thruster values")
         
         else:
@@ -740,7 +742,8 @@ class logDataGatherer():
                     direction='nearest', suffixes=('_df1', '_df2'))   
             
         if 'Displacement' not in self.data:
-            raise Exception("Log has no Displacement values")
+            print("Log has no Displacement values")
+            #raise Exception("Log has no Displacement values")
         
         else: 
 

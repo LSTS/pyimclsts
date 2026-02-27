@@ -135,13 +135,15 @@ def export_logs(all_logs):
 
                         shutil.copyfileobj(f_in, f_out)
 
-    except OSError as e:
+    except (OSError, EOFError) as e:
         
         print("Not able to read file: {} \n Error: {}".format(e, f))
 
         if os.path.isfile(uncomp_log):
 
             os.remove(uncomp_log)
+
+
 ## Concantenate all those given logs
 def concatenate_logs(all_logs):
 
