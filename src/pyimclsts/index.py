@@ -2,8 +2,9 @@
 Fast IMC log indexing utilities.
 
 - Scan IMC log frames without deserializing payload fields.
-- Create a compact index file with one fixed-size record per message:
-  offset (uint64), timestamp (float64), msg_id (uint16), payload_size (uint16).
+- Write/read Neptus-compatible index files at <log_dir>/mra/lsf.index:
+  Header: magic "IDX1" + start_time_s (big-endian).
+  Entry: dt_ms (int32), mgid (uint16), pos (uint64), big-endian.
 """
 
 from dataclasses import dataclass
@@ -21,9 +22,12 @@ from . import core as _core
 _HEADER_STRUCT_LE = struct.Struct("<HHHdHBHB")
 _HEADER_STRUCT_BE = struct.Struct(">HHHdHBHB")
 
-# Index record layout:
-# offset (uint64), timestamp (float64), msg_id (uint16), payload_size (uint16)
-_INDEX_RECORD_STRUCT = struct.Struct("<QdHH")
+# Neptus index layout:
+# Header: magic (4 bytes), start_time_s (fp64)
+# Entry: dt_ms (int32), mgid (uint16), pos (uint64)
+_NEPTUS_MAGIC = b"IDX1"
+_INDEX_HEADER_STRUCT = struct.Struct(">4sd")
+_INDEX_ENTRY_STRUCT = struct.Struct(">iHQ")
 
 
 def _generated_frame_sizes() -> tuple[int, int]:
@@ -47,6 +51,8 @@ if _HEADER_STRUCT_LE.size != _HEADER_SIZE or _HEADER_STRUCT_BE.size != _HEADER_S
     raise RuntimeError(
         "Generated IMC header size does not match index parser header struct format."
     )
+HEADER_SIZE = _HEADER_SIZE
+CRC_SIZE = _CRC_SIZE
 
 
 @dataclass
@@ -63,11 +69,11 @@ class IndexRecord:
     offset: int
     timestamp: float
     msg_id: int
-    payload_size: int
 
 
-def _default_index_path(log_path: str) -> str:
-    return f"{log_path}.idx"
+def default_index_path(log_path: str) -> str:
+    log_dir = os.path.dirname(os.path.abspath(log_path))
+    return os.path.join(log_dir, "mra", "lsf.index")
 
 
 def _decode_header(header_bytes: bytes, sync_number: int):
@@ -86,6 +92,20 @@ def _decode_header(header_bytes: bytes, sync_number: int):
         fields = _HEADER_STRUCT_BE.unpack(header_bytes)
         return True, False, fields[1], fields[2], fields[3]
     return False, None, None, None, None
+
+
+def decode_header(header_bytes: bytes, sync_number: int):
+    return _decode_header(header_bytes, sync_number)
+
+
+def _timestamp_to_dt_ms(timestamp: float, start_time: float) -> int:
+    # Java's double->int cast truncates toward zero; mirror that behavior.
+    dt_ms = int((timestamp - start_time) * 1000.0)
+    if dt_ms < -2147483648 or dt_ms > 2147483647:
+        raise OverflowError(
+            f"Index timestamp delta does not fit int32 milliseconds: {dt_ms}."
+        )
+    return dt_ms
 
 
 def build_index(
@@ -110,14 +130,20 @@ def build_index(
         sync_number = pg._base._sync_number
 
     if index_path is None:
-        index_path = _default_index_path(log_path)
+        index_path = default_index_path(log_path)
+    index_dir = os.path.dirname(index_path)
+    if index_dir:
+        os.makedirs(index_dir, exist_ok=True)
 
     file_size = os.path.getsize(log_path)
     records = 0
     invalid_sync_resyncs = 0
     invalid_frames = 0
+    start_time = None
 
     with open(log_path, "rb") as log_f, open(index_path, "wb") as idx_f:
+        # Placeholder header; overwritten with actual start_time when first record is indexed.
+        idx_f.write(_INDEX_HEADER_STRUCT.pack(_NEPTUS_MAGIC, 0.0))
         while True:
             offset = log_f.tell()
             if offset + _HEADER_SIZE > file_size:
@@ -160,7 +186,14 @@ def build_index(
                 # Skip payload + CRC without reading/parsing.
                 log_f.seek(payload_size + _CRC_SIZE, os.SEEK_CUR)
 
-            idx_f.write(_INDEX_RECORD_STRUCT.pack(offset, timestamp, msg_id, payload_size))
+            if start_time is None:
+                start_time = timestamp
+                idx_f.seek(0)
+                idx_f.write(_INDEX_HEADER_STRUCT.pack(_NEPTUS_MAGIC, start_time))
+                idx_f.seek(0, os.SEEK_END)
+
+            dt_ms = _timestamp_to_dt_ms(timestamp, start_time)
+            idx_f.write(_INDEX_ENTRY_STRUCT.pack(dt_ms, msg_id, offset))
             records += 1
 
     return IndexBuildResult(
@@ -174,25 +207,33 @@ def build_index(
 
 def iter_index(index_path: str) -> Iterator[IndexRecord]:
     """
-    Iterate index records from a binary .idx file.
+    Iterate index records from Neptus-compatible lsf.index files.
     """
     if not os.path.isfile(index_path):
         raise FileNotFoundError(f"Index file not found: {index_path}")
 
-    rec_size = _INDEX_RECORD_STRUCT.size
     with open(index_path, "rb") as idx_f:
+        magic = idx_f.read(4)
+        if magic != _NEPTUS_MAGIC:
+            raise ValueError("Unsupported index format: expected Neptus magic 'IDX1'.")
+
+        header_rest = idx_f.read(_INDEX_HEADER_STRUCT.size - 4)
+        if len(header_rest) != _INDEX_HEADER_STRUCT.size - 4:
+            raise ValueError("Corrupted index file: missing header.")
+        _, start_time = _INDEX_HEADER_STRUCT.unpack(magic + header_rest)
+
+        rec_size = _INDEX_ENTRY_STRUCT.size
         while True:
             chunk = idx_f.read(rec_size)
             if chunk == b"":
                 break
             if len(chunk) != rec_size:
-                raise ValueError("Corrupted index file: trailing partial record.")
-            offset, timestamp, msg_id, payload_size = _INDEX_RECORD_STRUCT.unpack(chunk)
+                raise ValueError("Corrupted index file: trailing partial entry.")
+            dt_ms, msg_id, offset = _INDEX_ENTRY_STRUCT.unpack(chunk)
             yield IndexRecord(
                 offset=offset,
-                timestamp=timestamp,
+                timestamp=start_time + (dt_ms / 1000.0),
                 msg_id=msg_id,
-                payload_size=payload_size,
             )
 
 
@@ -212,7 +253,7 @@ def _cli() -> int:
         "-o",
         "--output",
         dest="index_path",
-        help="Output index path. Default: <log_path>.idx",
+        help="Output index path. Default: <log_dir>/mra/lsf.index",
     )
     parser.add_argument(
         "--validate-crc",

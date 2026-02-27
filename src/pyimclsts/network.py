@@ -553,7 +553,7 @@ class subscriber:
         return isinstance(io_interface, _core.file_interface)
 
     def _ensure_log_index(self, log_path : str) -> str:
-        index_path = f'{log_path}.idx'
+        index_path = _index.default_index_path(log_path)
         rebuild_reason = None
         needs_rebuild = not _os.path.isfile(index_path)
         if needs_rebuild:
@@ -583,7 +583,7 @@ class subscriber:
             return
 
         selected_msg_ids = None if self._subscripted_all else set(self._subscriptions.keys())
-        frame_overhead = 22  # 20-byte header + 2-byte CRC
+        sync_number = _pg._base._sync_number
 
         def _send_stub(message, *, src=None, src_ent=None, dst=None, dst_ent=None):
             return None
@@ -602,10 +602,16 @@ class subscriber:
                     continue
 
                 log_file.seek(record.offset)
-                msg_size = frame_overhead + record.payload_size
-                raw_msg = log_file.read(msg_size)
-                if len(raw_msg) != msg_size:
+                header = log_file.read(_index.HEADER_SIZE)
+                if len(header) != _index.HEADER_SIZE:
                     continue
+                ok, _, msg_id, payload_size, _ = _index.decode_header(header, sync_number)
+                if not ok or msg_id != record.msg_id:
+                    continue
+                suffix = log_file.read(payload_size + _index.CRC_SIZE)
+                if len(suffix) != payload_size + _index.CRC_SIZE:
+                    continue
+                raw_msg = header + suffix
 
                 await self._dispatch_unparsed_message(raw_msg, _send_stub)
                 await _asyncio.sleep(0)
