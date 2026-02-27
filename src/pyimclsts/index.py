@@ -1,7 +1,6 @@
 """
 Fast IMC log indexing utilities.
 
-Phase 1 goals:
 - Scan IMC log frames without deserializing payload fields.
 - Create a compact index file with one fixed-size record per message:
   offset (uint64), timestamp (float64), msg_id (uint16), payload_size (uint16).
@@ -12,23 +11,42 @@ import argparse
 import os
 import struct
 from typing import Iterable, Iterator, Optional
+import pyimc_generated as pg
 
 from . import core as _core
-
-
-_IMC_SYNC_DEFAULT = 0xFE54
 
 # IMC header layout in pyimclsts core:
 # sync (uint16), mgid (uint16), size (uint16), timestamp (fp64), src (uint16),
 # src_ent (uint8), dst (uint16), dst_ent (uint8)
-_HEADER_SIZE = 20
-_CRC_SIZE = 2
 _HEADER_STRUCT_LE = struct.Struct("<HHHdHBHB")
 _HEADER_STRUCT_BE = struct.Struct(">HHHdHBHB")
 
 # Index record layout:
 # offset (uint64), timestamp (float64), msg_id (uint16), payload_size (uint16)
 _INDEX_RECORD_STRUCT = struct.Struct("<QdHH")
+
+
+def _generated_frame_sizes() -> tuple[int, int]:
+    header = pg._base.header_data(
+        sync=pg._base._sync_number,
+        mgid=0,
+        size=0,
+        timestamp=0.0,
+        src=0,
+        src_ent=0,
+        dst=0,
+        dst_ent=0,
+    )
+    header_size = len(_core.pack_functions_big["header"](*header))
+    crc_size = len(_core.pack_functions_big["uint16_t"](0))
+    return header_size, crc_size
+
+
+_HEADER_SIZE, _CRC_SIZE = _generated_frame_sizes()
+if _HEADER_STRUCT_LE.size != _HEADER_SIZE or _HEADER_STRUCT_BE.size != _HEADER_SIZE:
+    raise RuntimeError(
+        "Generated IMC header size does not match index parser header struct format."
+    )
 
 
 @dataclass
@@ -75,7 +93,7 @@ def build_index(
     index_path: Optional[str] = None,
     *,
     validate_crc: bool = False,
-    sync_number: int = _IMC_SYNC_DEFAULT,
+    sync_number: Optional[int] = None,
 ) -> IndexBuildResult:
     """
     Build an index from an IMC .lsf log file.
@@ -88,6 +106,8 @@ def build_index(
         raise FileNotFoundError(f"Log file not found: {log_path}")
     if log_path.endswith(".gz"):
         raise ValueError("Compressed logs are not supported for indexing. Use an uncompressed .lsf file.")
+    if sync_number is None:
+        sync_number = pg._base._sync_number
 
     if index_path is None:
         index_path = _default_index_path(log_path)
@@ -199,19 +219,12 @@ def _cli() -> int:
         action="store_true",
         help="Validate CRC for each frame (safer, slower).",
     )
-    parser.add_argument(
-        "--sync",
-        type=lambda v: int(v, 0),
-        default=_IMC_SYNC_DEFAULT,
-        help="IMC sync number (default: 0xFE54). Accepts decimal or hex.",
-    )
     args = parser.parse_args()
 
     result = build_index(
         log_path=args.log_path,
         index_path=args.index_path,
         validate_crc=args.validate_crc,
-        sync_number=args.sync,
     )
     print(f"Index written to: {result.index_path}")
     print(f"Records: {result.records}")
