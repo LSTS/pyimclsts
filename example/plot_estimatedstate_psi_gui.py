@@ -90,7 +90,7 @@ class PsiPlotApp:
         self.show_debug_var = self.tk.BooleanVar(value=False)
         self.selected_message_var = self.tk.StringVar()
         self.selected_field_var = self.tk.StringVar()
-        self.status_var = self.tk.StringVar(value='Add one or more logs, then click Load + Plot.')
+        self.status_var = self.tk.StringVar(value='Add one or more logs or folders, then click Load + Plot.')
         self.progress_var = self.tk.DoubleVar(value=0.0)
         self.progress_text_var = self.tk.StringVar(value='Progress: 0/0 (0.0%)')
         self.debug_enabled = True
@@ -160,7 +160,10 @@ class PsiPlotApp:
         controls.pack(fill=self.tk.X)
 
         browse_btn = self.ttk.Button(controls, text='Add Logs...', command=self._on_browse)
-        browse_btn.pack(side=self.tk.LEFT, fill=self.tk.X, expand=True)
+        browse_btn.pack(side=self.tk.LEFT, fill=self.tk.X, expand=True, padx=(0, 6))
+
+        browse_folder_btn = self.ttk.Button(controls, text='Add Folder...', command=self._on_browse_folder)
+        browse_folder_btn.pack(side=self.tk.LEFT, fill=self.tk.X, expand=True)
 
         remove_btn = self.ttk.Button(left_panel, text='Remove Selected', command=self._remove_selected)
         remove_btn.pack(fill=self.tk.X, pady=(8, 0))
@@ -171,15 +174,21 @@ class PsiPlotApp:
         list_frame = self.ttk.Frame(left_panel)
         list_frame.pack(fill=self.tk.BOTH, expand=True, pady=(8, 0))
 
-        scrollbar = self.ttk.Scrollbar(list_frame, orient=self.tk.VERTICAL)
+        y_scrollbar = self.ttk.Scrollbar(list_frame, orient=self.tk.VERTICAL)
+        x_scrollbar = self.ttk.Scrollbar(list_frame, orient=self.tk.HORIZONTAL)
         self.log_listbox = self.tk.Listbox(
             list_frame,
             selectmode=self.tk.EXTENDED,
-            yscrollcommand=scrollbar.set,
+            yscrollcommand=y_scrollbar.set,
+            xscrollcommand=x_scrollbar.set,
         )
-        scrollbar.config(command=self.log_listbox.yview)
-        self.log_listbox.pack(side=self.tk.LEFT, fill=self.tk.BOTH, expand=True)
-        scrollbar.pack(side=self.tk.RIGHT, fill=self.tk.Y)
+        y_scrollbar.config(command=self.log_listbox.yview)
+        x_scrollbar.config(command=self.log_listbox.xview)
+        list_frame.grid_rowconfigure(0, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
+        self.log_listbox.grid(row=0, column=0, sticky='nsew')
+        y_scrollbar.grid(row=0, column=1, sticky='ns')
+        x_scrollbar.grid(row=1, column=0, columnspan=2, sticky='ew')
 
         self.load_btn = self.ttk.Button(left_panel, text='Load + Plot', command=self._on_load)
         self.load_btn.pack(fill=self.tk.X, pady=(8, 0))
@@ -451,20 +460,72 @@ class PsiPlotApp:
             self._debug('No files selected.')
             return
 
+        added, ignored_invalid, ignored_existing = self._add_log_paths(selected_paths)
+        self.status_var.set(
+            f'Added {added} log(s), skipped {ignored_invalid} invalid and {ignored_existing} existing. '
+            f'Total selected: {len(self.log_paths)}.'
+        )
+        self._debug(
+            f'File selection added {added} logs; ignored {ignored_invalid} invalid and '
+            f'{ignored_existing} already selected.'
+        )
+
+    def _on_browse_folder(self):
+        selected_folder = self.filedialog.askdirectory(
+            title='Select a folder to search recursively for Data.lsf / Data.lsf.gz'
+        )
+        if not selected_folder:
+            self._debug('No folder selected.')
+            return
+
+        discovered_paths = self._discover_data_logs(selected_folder)
+        if not discovered_paths:
+            self.status_var.set('No Data.lsf or Data.lsf.gz files were found in the selected folder.')
+            self._debug(f'No logs discovered under {selected_folder}.')
+            return
+
+        added, ignored_invalid, ignored_existing = self._add_log_paths(discovered_paths)
+        self.status_var.set(
+            f'Discovered {len(discovered_paths)} log(s), added {added}, '
+            f'skipped {ignored_invalid} invalid and {ignored_existing} existing. '
+            f'Total selected: {len(self.log_paths)}.'
+        )
+        self._debug(
+            f'Folder selection discovered {len(discovered_paths)} logs under {selected_folder}; '
+            f'added {added}, ignored {ignored_invalid} invalid and {ignored_existing} already selected.'
+        )
+
+    def _discover_data_logs(self, root_folder):
+        discovered = []
+        for dirpath, _dirnames, filenames in os.walk(root_folder):
+            has_data_lsf = 'Data.lsf' in filenames
+            has_data_lsf_gz = 'Data.lsf.gz' in filenames
+            if has_data_lsf:
+                discovered.append(os.path.join(dirpath, 'Data.lsf'))
+            elif has_data_lsf_gz:
+                discovered.append(os.path.join(dirpath, 'Data.lsf.gz'))
+        discovered.sort()
+        return discovered
+
+    def _add_log_paths(self, paths):
         added = 0
-        for path in selected_paths:
+        ignored_invalid = 0
+        ignored_existing = 0
+        for path in paths:
             try:
                 valid_path = _resolve_log_path(path)
             except Exception:
+                ignored_invalid += 1
                 self._debug(f'Ignored invalid path: {path}')
                 continue
-            if valid_path not in self.log_paths:
-                self.log_paths.append(valid_path)
-                added += 1
+            if valid_path in self.log_paths:
+                ignored_existing += 1
+                continue
+            self.log_paths.append(valid_path)
+            added += 1
 
         self._refresh_log_list()
-        self.status_var.set(f'Added {added} log(s). Total selected: {len(self.log_paths)}.')
-        self._debug(f'Added {added} logs. Total is now {len(self.log_paths)}.')
+        return added, ignored_invalid, ignored_existing
 
     def _refresh_log_list(self):
         self.log_listbox.delete(0, self.tk.END)
@@ -489,7 +550,7 @@ class PsiPlotApp:
 
     def _on_load(self):
         if not self.log_paths:
-            self.messagebox.showerror('Missing files', 'Please add one or more .lsf/.lsf.gz files.')
+            self.messagebox.showerror('Missing files', 'Please add one or more logs or folders.')
             self._debug('Load aborted: no logs selected.')
             return
 
