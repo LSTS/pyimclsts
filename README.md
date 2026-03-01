@@ -3,6 +3,7 @@
 This tool reads the IMC schema from a XML file, locally creates files containing the messages and connects (imports) the main global machinery.
 
 See `/example` to check an example implementation of the Follow Reference maneuver.
+There is also a reusable backseat base in `pyimclsts.backseat` and a demo in `/example/backseat_base_demo.py`.
 
 Check the documentation page [here](https://choiwd.github.io/pyimclsts/).
 
@@ -30,6 +31,21 @@ import pyimc_generated as pg
 In the installed module, you will find some functions to allow you to connect to a vehicle and subscribe to messages, namely, a subscriber class.
 ```python
 import pyimc_generated as pg
+```
+
+### Generic backseat base
+
+`pyimclsts.backseat.BaseBackseat` provides:
+
+- IMC TCP lifecycle (`start_network`, `stop_network`)
+- Generic FSM (`register_state`, `start_mission`, `pause_mission`, `resume_mission`)
+- Communication queues (`queue_imc`, `queue_sms`, `queue_iridium`)
+- Built-in web UI (`start_web_ui`)
+
+Minimal demo:
+
+```shell
+python3 -m example.backseat_base_demo --host 127.0.0.1 --port 6006 --target lauv-xplore-2
 ```
 
 In the /example folder you can find scripts that use this library for various porpuses, such as reading and concatenating logs for the creation of the NetCDF files.  
@@ -103,7 +119,6 @@ Included in this repo are 2 util scripts.
 - `netcdf_editor.py` Essentially the same but it uses the netCDF file to generate another one. To be used if you changed the metadata. 
 
 That's it. If any problems come up or you want suggest a new useful feauture (like additional filtering) you can do so by opening a new Issue or contacting somebody from the LSTS staff. 
-
 
 
 
