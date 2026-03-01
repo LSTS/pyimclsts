@@ -586,12 +586,18 @@ class BaseBackseat:
         header = getattr(msg, "_header", None)
         src = getattr(header, "src", None)
         sys_name = msg.sys_name
+        services_raw = msg.services
+        services_list = []
+        if services_raw:
+            services_list = [s.strip() for s in services_raw.split(";") if s.strip()]
         if not sys_name:
             return
         with self._lock:
             entry = self._peers.get(sys_name, {})
             entry["src"] = src
             entry["last_seen"] = time.time()
+            entry["services"] = services_raw
+            entry["services_list"] = services_list
             self._peers[sys_name] = entry
 
     def _on_abort(self, msg: Any, _send: Callable[..., None]) -> None:
