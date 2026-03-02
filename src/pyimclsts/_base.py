@@ -39,7 +39,7 @@ imc_types = %IMC_TYPES%
 
 class base_message(IMC_message):
     
-    __slots__ = ['_header', '_footer', 'Attributes']
+    __slots__ = ['_Attributes', '_header', '_footer']
 
     def __str__(self) -> str:
         output = ['Message \'' + self.Attributes.name + '\':', 'Fields:']
