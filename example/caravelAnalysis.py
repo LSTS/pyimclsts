@@ -82,7 +82,6 @@ if __name__ == '__main__':
         ## Added the columns coming from sea data
         for var in waveVarNames: 
             caravelDataDf[var]  = np.nan
-
         for var in currentVarNames:
             caravelDataDf[var] = np.nan
         
@@ -323,18 +322,22 @@ if __name__ == '__main__':
         lon = df_day['LONGITUDE'].values
         HDNG = df_day['HDNG'].values   # vehicle heading in radians
         VMAG = df_day['VMAG'].values   # vehicle speed
-
-        WDIR = df_day['WIND_DIR'].values 
-        WVAL = df_day['WIND_VAL'].values        
+        VMDR = df_day['VMDR'].values
+        
+        WIND_DIR = df_day['WIND_DIR'].values 
+        WIND_VAL = df_day['WIND_VAL'].values        
 
         Cx = df_day['uo'].values       # current x
         Cy = df_day['vo'].values       # current y
 
-        Wx = WVAL * np.sin(WDIR)
-        Wy = WVAL * np.cos(WDIR)
+        Wx = WIND_VAL * np.sin(WIND_DIR)
+        Wy = WIND_VAL * np.cos(WIND_DIR)
 
         Hs = df_day['VHM0'].values     # wave height
-        Wf = df_day['W_F']
+        Wf = df_day['W_F'].values
+
+        Wave_x = Hs * np.sin(df_day['VMDR'])
+        Wave_y = Hs * np.cos(df_day['VMDR'])
 
         # Mask NaNs
         mask = (~np.isnan(HDNG)) & (~np.isnan(VMAG)) & (~np.isnan(Cx)) & (~np.isnan(Cy))
@@ -345,6 +348,7 @@ if __name__ == '__main__':
         Cx = Cx[mask]
         Cy = Cy[mask]
         Hs = Hs[mask]
+        VMDR = VMDR[mask]
 
 
         # -------------------------------
@@ -356,8 +360,7 @@ if __name__ == '__main__':
         Vx = VMAG * np.sin(HDNG)
         Vy = VMAG * np.cos(HDNG)
         cols_of_interest = ['LATITUDE', 'LONGITUDE', 'VMAG']
-        print(df_day[cols_of_interest].dropna().tail(10))
-        #print(df_day[cols_of_interest].dropna().head(20))
+        
         # -------------------------------
         # 4️⃣ Create plot
         # -------------------------------
@@ -394,12 +397,20 @@ if __name__ == '__main__':
         plt.colorbar(sc2, label='Wave Frequency (Hz)')
         plt.colorbar(sc1, label="Wave Height (m)")
 
+        # Wave direction vectors
+        plt.quiver(
+            lon, lat, 
+            Wave_x, Wave_y,
+            color='blue',
+            angles='xy', scale_units='xy', scale=25,
+            width=0.002, headwidth=3, headlength=4, alpha=0.6
+        )
 
         # Vehicle vectors
         plt.quiver(
             lon, lat,
             Vx, Vy,
-            color='blue',
+            color='purple',
             angles='xy', scale_units='xy', scale=25,  # scale controls actual length
             width=0.002, headwidth=3, headlength=4, alpha=0.6
         )
@@ -445,7 +456,7 @@ if __name__ == '__main__':
         for i in range(len(lon)):
             plt.text(lon[i] + Vx[i]*scale_vehicle + text_offset,
                     lat[i] + Vy[i]*scale_vehicle + text_offset,
-                    f"{mag_vehicle[i]:.2f}", color='blue', fontsize=7)
+                    f"{mag_vehicle[i]:.2f}", color='purple', fontsize=7)
             
             plt.text(lon[i] + Cx[i]*scale_current + text_offset,
                     lat[i] + Cy[i]*scale_current + text_offset,
@@ -453,15 +464,20 @@ if __name__ == '__main__':
             
             plt.text(lon[i] + Wx[i]*scale_current + text_offset,
                     lat[i] + Wy[i]*scale_current + text_offset,
-                    f"{WVAL[i]:.2f}", color='green', fontsize=7)
+                    f"{WIND_VAL[i]:.2f}", color='green', fontsize=7)
+            
+            plt.text(lon[i] + Wx[i]*scale_current + text_offset, 
+                     lat[i] + Wy[i]*scale_current + text_offset, 
+                     f"{Hs[i]:.2f}", color="blue", fontsize=7 )
 
         # -------------------------------
         # 6️⃣ Legend
         # -------------------------------
         legend_elements = [
-            Line2D([0],[0], color='blue', lw=2, label='Vehicle Heading'),
+            Line2D([0],[0], color='purple', lw=2, label='Vehicle Heading'),
             Line2D([0],[0], color='red', lw=2, label='Current'),
             Line2D([0],[0], color='green', lw=2, label='Wind Heading'),
+            Line2D([0], [0], color='blue', lw=2, label="Wave Direction"),
             plt.scatter([],[], c='gray', s=40, edgecolors='k', linewidths=0.3, label='Wave Height')
         ]
 
