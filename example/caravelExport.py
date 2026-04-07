@@ -133,6 +133,7 @@ if __name__ == '__main__':
             sub.subscribe_async(logData.update_thruster, msg_id=pg.messages.SetThrusterActuation)
             sub.subscribe_async(logData.update_voltage, msg_id=pg.messages.Voltage)
             sub.subscribe_async(logData.update_displacement, msg_id=pg.messages.Displacement)
+            sub.subscribe_async(logData.update_path_control_state, msg_id=pg.messages.PathControlState)
 
             # Run the even loop (This is asyncio witchcraft)s
             sub.run()
