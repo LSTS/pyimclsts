@@ -185,6 +185,14 @@ class logDataGatherer():
     # that the vehicle has resurfaced and a correction to its position was made.
     # We then propagate that correction to all previous uncorrected measurements
     """
+
+    def update_path_control_state(self, msg, callback):
+
+        time = msg._header.timestamp
+        src_ent = msg._header.src_ent
+        path_control_state = [time, msg.lradius, msg.flags]
+
+        self.addData('PathControlState', path_control_state)
     
     def update_temperature(self, msg, callback):
 
@@ -727,7 +735,19 @@ class logDataGatherer():
 
             self.df_all_data = pd.merge_asof(self.df_all_data, self.df_absolute, on='TIME', 
                     direction='nearest', suffixes=('_df1', '_df2'))   
+            
+        if 'PathControlState' not in self.data:
 
+            raise Exception("Log has no Path Control State")
+        
+        else: 
+
+            self.df_path_control_state = pd.DataFrame(self.data['PathControlState'], columns=['TIME','LRadius', 'Flags'])
+            self.df_path_control_state = self.df_path_control_state.sort_values(by='TIME')
+            self.df_path_control_state['TIME'] = pd.to_datetime(self.df_path_control_state['TIME'], unit='s')
+
+            self.df_all_data = pd.merge_asof(self.df_all_data, self.df_path_control_state, on='TIME', 
+                    direction='nearest', suffixes=('_df1', '_df2'))  
 
         if 'Thruster' not in self.data:
             #print("Log has no Thruster values")
