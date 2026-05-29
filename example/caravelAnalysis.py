@@ -6,6 +6,8 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import seaborn as sns
 import statsmodels.api as sm
+import plotly.express as px
+
 from utide import solve, reconstruct
 from oceans.filters import pl33tn
 
@@ -16,7 +18,12 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel, WhiteKernel, Matern, RationalQuadratic
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+
+# Plotting AIS
+import rasterio
+import rioxarray
+from rasterio.plot import reshape_as_image
+from PIL import Image;
 
 if __name__ == '__main__':
 
@@ -35,11 +42,11 @@ if __name__ == '__main__':
     export = args.sea_export
     fullData = args.data_path
 
-    caravelPaths = ['/home/ruben/Workspace/pyimclsts/data/caravel_2025_08_03_loiter.xlsx',
-                     '/home/ruben/Workspace/pyimclsts/data/caravel_2025_08_04_loiter.xlsx']
+    caravelPaths = ['/home/ruben/Workspace/pyimclsts-leao/data/caravel_2025_08_03_loiter.xlsx',
+                     '/home/ruben/Workspace/pyimclsts-leao/data/caravel_2025_08_04_loiter.xlsx']
     #caravelPaths = ['/home/ruben/Workspace/pyimclsts/data/caravel_2025_06_30.xlsx']
 
-    seaPaths = ['/home/ruben/Workspace/pyimclsts/data/copernicus/sea_state.nc', '/home/ruben/Workspace/pyimclsts/data/copernicus/currents.nc']
+    seaPaths = ['/home/ruben/Workspace/pyimclsts-leao/data/copernicus/sea_state.nc', '/home/ruben/Workspace/pyimclsts-leao/data/copernicus/currents.nc']
 
     # Open Data sets and turn them into pandas dataframes 
     # Variables to look up on Sea Dataset 
@@ -64,6 +71,9 @@ if __name__ == '__main__':
             pd.to_datetime(currentsData['time'].values, unit='s', utc=True), 
             dims='time'
         )
+
+        print(seaData)
+        print(currentsData)
 
         ## Second Caravel's Auxiliary Data
         caravelDataDf = pd.read_excel(caravelPaths[0])
@@ -331,7 +341,7 @@ if __name__ == '__main__':
         ax2.legend(loc='upper right')
         plt.title('Daily Caravel Speed and Wave Height')
         plt.show()
-
+    
         # Garantir que filt_vel_mag é 1-dimensional
         filt_vel_mag_1d = np.ravel(filt_vel_mag)  # ou filt_vel_mag.flatten()
 
@@ -348,6 +358,96 @@ if __name__ == '__main__':
         }, index=filtered_index[:n_points])
 
         filtered_data = filtered_data.dropna()
+        
+        # Load GeoTIFF 
+        
+        with rasterio.open("/home/ruben/Workspace/pyimclsts-leao/data/caravel_path/EMODnet_HA_Vessel_Density_12/vesseldensity_12_20170301.tif") as src:
+            data = src.read(1).astype(float)
+
+            # ✅ FIX 1: handle NoData immediately
+            nodata = src.nodata
+            print("NoData value:", nodata)
+
+            if nodata is not None:
+                data[data == nodata] = np.nan
+                
+        print("NaN ratio:", np.isnan(data).mean())
+        print("Min (valid):", np.nanmin(data))
+        print("Max (valid):", np.nanmax(data))
+        
+        
+        ds = rioxarray.open_rasterio("/home/ruben/Workspace/pyimclsts-leao/data/caravel_path/EMODnet_HA_Vessel_Density_12/vesseldensity_12_20170301.tif")
+        ds_4326 = ds.rio.reproject("EPSG:4326")
+        ds_4326.rio.to_raster("density_4326.tif")
+                
+        with rasterio.open("density_4326.tif") as src:
+
+            band = src.read(1).astype(float)
+
+            nodata = src.nodata
+            print("NoData:", nodata)
+
+            if nodata is not None:
+                band[band == nodata] = np.nan
+
+            band[band < 0] = np.nan
+
+            # log transform
+            band = np.log1p(band)
+
+            # robust normalization
+            vals = band[np.isfinite(band)]
+
+            vmin = np.percentile(vals, 5)
+            vmax = np.percentile(vals, 99)
+
+            if vmax - vmin < 1e-9:
+                raise ValueError("Raster has no dynamic range — wrong or empty layer")
+
+            band = np.clip(band, vmin, vmax)
+            band = (band - vmin) / (vmax - vmin)
+
+            bounds = src.bounds
+        
+        plt.figure(figsize=(10,5))
+        plt.imshow(band, cmap="hot")
+        plt.colorbar()
+        plt.show()
+
+        img = Image.fromarray(band)
+        img.save("overlay.png")
+                
+        coordinates = [
+            [bounds.left, bounds.top],      # NW
+            [bounds.right, bounds.top],     # NE
+            [bounds.right, bounds.bottom],  # SE
+            [bounds.left, bounds.bottom]    # SW
+        ]
+
+        fig = px.scatter_mapbox(
+            filtered_data,
+            lat="LATITUDE",
+            lon="LONGITUDE",
+            zoom=8,
+            height=800,
+        )
+
+        fig.update_traces(mode="lines")
+        fig.update_layout(
+            mapbox_layers=[
+                {
+                    "sourcetype": "image",
+                    "source": "overlay.png",
+                    "coordinates": coordinates,
+                    "opacity": 0.6,
+                    "below": "traces"
+                }
+            ]
+        )
+
+        fig.show()
+
+
 
         cut_time1 = pd.to_datetime("2025-08-04 12:00:00.000000000", utc=True)
         cut_time2 = pd.to_datetime("2025-08-07 15:00:00.000000000", utc=True)
@@ -393,7 +493,7 @@ if __name__ == '__main__':
             x_sorted = np.sort(filtered_data['VHM0'])
             plt.plot(x_sorted, p(x_sorted), 
                     "r--", linewidth=2, 
-                    label=f'Tendência quadrática: {a:.3e}x² + {b:.3e}x + {c:.3e} (r² = {corr**2:.3f})')
+                    label=f'Quadratic Relationship: {a:.3e}x² + {b:.3e}x + {c:.3e} (r² = {corr**2:.3f})')
             
             # Imprimir parâmetros
             print(f"Parâmetros da linha quadrática:")
@@ -402,9 +502,9 @@ if __name__ == '__main__':
             print(f"  c:      {c:.6f}")
             print(f"  r²:     {corr**2:.6f}")
 
-        plt.xlabel('Altura Significativa da Onda - VHM0 (m)')
-        plt.ylabel('Velocidade Filtrada do Veículo - VMAG (m/s)')
-        plt.title('Relação entre Velocidade Filtrada (pl33tn) e Altura da Onda')
+        plt.xlabel('Significant Wave Height - VHM0 (m)')
+        plt.ylabel('Vehicle Filtered Velocity (pl33tn) - VMAG (m/s)')
+        plt.title('VMAG and VHM0 Relationship')
         plt.grid(True, alpha=0.3)
         plt.legend()
         plt.tight_layout()
@@ -530,7 +630,7 @@ if __name__ == '__main__':
             x_sorted = np.sort(filtered_data['VHM0'])
             plt.plot(x_sorted, p(x_sorted), 
                     "r--", linewidth=2, 
-                    label=f'Tendência quadrática: {a:.3e}x² + {b:.3e}x + {c:.3e} (r² = {corr**2:.3f})')
+                    label=f'Quadratic relationship: {a:.3e}x² + {b:.3e}x + {c:.3e} (r² = {corr**2:.3f})')
             
             # Imprimir parâmetros
             print(f"Parâmetros da linha quadrática:")
@@ -810,14 +910,10 @@ if __name__ == '__main__':
 
         plt.legend(handles=legend_elements, loc='upper left')
 
-        # -------------------------------
-        # 7️⃣ Final touches
-        # -------------------------------
         plt.xlabel('Longitude')
         plt.ylabel('Latitude')
         plt.title(f'Vehicle Heading & Current Vectors')
         plt.grid(True, alpha=0.3)
         plt.axis('equal')
         plt.show()
-
         
