@@ -90,6 +90,7 @@ class PsiPlotApp:
         self.show_debug_var = self.tk.BooleanVar(value=False)
         self.selected_message_var = self.tk.StringVar()
         self.selected_field_var = self.tk.StringVar()
+        self.max_plot_time_var = self.tk.StringVar(value='0')
         self.status_var = self.tk.StringVar(value='Add one or more logs or folders, then click Load + Plot.')
         self.progress_var = self.tk.DoubleVar(value=0.0)
         self.progress_text_var = self.tk.StringVar(value='Progress: 0/0 (0.0%)')
@@ -241,7 +242,7 @@ class PsiPlotApp:
 
         self.settings_window = self.tk.Toplevel(self.root)
         self.settings_window.title('Settings')
-        self.settings_window.geometry('420x320')
+        self.settings_window.geometry('420x390')
         self.settings_window.transient(self.root)
 
         notebook = self.ttk.Notebook(self.settings_window)
@@ -298,6 +299,12 @@ class PsiPlotApp:
         )
         self.field_combo.pack(side=self.tk.RIGHT, fill=self.tk.X, expand=True)
         self._update_field_combo_values(preferred=self.selected_field_var.get())
+
+        time_frame = self.ttk.Frame(general_tab)
+        time_frame.pack(fill=self.tk.X, pady=(8, 0))
+        self.ttk.Label(time_frame, text='Maximum plot time [s]:').pack(side=self.tk.LEFT)
+        self.ttk.Entry(time_frame, textvariable=self.max_plot_time_var, width=12).pack(side=self.tk.RIGHT)
+        self.ttk.Label(general_tab, text='0 = unlimited; relative to each log\'s first sample.').pack(anchor=self.tk.W)
 
         close_btn = self.ttk.Button(general_tab, text='Close', command=self.settings_window.destroy)
         close_btn.pack(anchor=self.tk.E, pady=(16, 0))
@@ -562,6 +569,14 @@ class PsiPlotApp:
             self._debug('Load aborted: missing message/field selection.')
             return
 
+        try:
+            max_plot_time = float(self.max_plot_time_var.get())
+            if not math.isfinite(max_plot_time) or max_plot_time < 0:
+                raise ValueError
+        except ValueError:
+            self.messagebox.showerror('Invalid maximum plot time', 'Enter a finite number of seconds greater than or equal to 0 (0 = unlimited).')
+            return
+
         workers = max(1, int(self.workers_var.get()))
         self._set_progress(0, len(self.log_paths))
         self.load_btn.config(state=self.tk.DISABLED)
@@ -574,17 +589,19 @@ class PsiPlotApp:
 
         thread = threading.Thread(
             target=self._load_and_plot_worker,
-            args=(list(self.log_paths), message_cls, message_name, field_name),
+            args=(list(self.log_paths), message_cls, message_name, field_name, max_plot_time),
             daemon=True,
         )
         thread.start()
 
-    def _parse_one_log(self, log_path, message_cls, field_name):
+    def _parse_one_log(self, log_path, message_cls, field_name, max_plot_time=0):
         input_lsf_path, temp_file_to_remove = _decompress_if_needed(log_path)
         timestamps = []
         field_values = []
 
         def on_message(msg, callback):
+            if max_plot_time > 0 and timestamps and msg._header.timestamp - timestamps[0] > max_plot_time:
+                return
             timestamps.append(msg._header.timestamp)
             field_values.append(getattr(msg, field_name))
 
@@ -603,7 +620,7 @@ class PsiPlotApp:
         rel_times = [t - t0 for t in timestamps]
         return (_curve_label_from_log_path(log_path), rel_times, field_values, t0, timestamps[-1])
 
-    def _load_and_plot_worker(self, selected_paths, message_cls, message_name, field_name):
+    def _load_and_plot_worker(self, selected_paths, message_cls, message_name, field_name, max_plot_time=0):
         try:
             datasets = []
             total_logs = len(selected_paths)
@@ -614,7 +631,7 @@ class PsiPlotApp:
                 future_to_path = {}
                 for log_path in selected_paths:
                     self.root.after(0, self._debug, f'Queueing {log_path}')
-                    future_to_path[executor.submit(self._parse_one_log, log_path, message_cls, field_name)] = log_path
+                    future_to_path[executor.submit(self._parse_one_log, log_path, message_cls, field_name, max_plot_time)] = log_path
 
                 for future in as_completed(future_to_path):
                     log_path = future_to_path[future]
